@@ -1639,7 +1639,7 @@ function hashStringToRange(input: string, min: number, max: number) {
 }
 
 /**
- * Calendar YYYY-MM-DD in an IANA time zone so “Pokémon of the day” changes at local midnight,
+ * Calendar YYYY-MM-DD in an IANA time zone so “Pokémon highlight” changes at local midnight,
  * not on every page rebuild / RSS refresh.
  */
 function calendarDateIsoInTimeZone(timeZone: string): string {
@@ -2032,7 +2032,7 @@ export default async function Home() {
               {cardTraderBestSeller ? (
                 <div className="flex h-full w-full max-w-[15rem] shrink-0 flex-col rounded-2xl border border-amber-400/30 bg-slate-950/80 p-3 lg:w-56 lg:max-w-none">
                   <p className="text-[10px] uppercase tracking-[0.14em] text-amber-300">
-                    Card of the Day
+                    Card Highlight
                   </p>
                   <a
                     href={cardTraderBestSeller.cardUrl}
@@ -2073,11 +2073,11 @@ export default async function Home() {
                   title={
                     pokemonOfDayArticle
                       ? `Open spotlight article from ${pokemonOfDayArticle.source}`
-                      : "Pokemon of the day"
+                      : "Pokemon highlight"
                   }
                 >
                   <p className="text-[10px] uppercase tracking-[0.14em] text-cyan-300">
-                    Pokemon Of The Day
+                    Pokemon Highlight
                   </p>
                   <div className="mt-2 flex min-h-0 flex-1 items-start gap-3">
                     {pokemonOfDay.image ? (
