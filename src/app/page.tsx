@@ -1729,8 +1729,8 @@ export default async function Home() {
         </ScrollReveal>
 
         <ScrollReveal delayMs={60}>
-          <section className="items-start grid gap-6 lg:grid-cols-[1.15fr_1fr]">
-          <div className="rounded-3xl border border-white/10 bg-slate-900 p-6 hover-lift">
+          <section className="grid items-stretch gap-6 lg:grid-cols-2">
+          <div className="h-full rounded-3xl border border-white/10 bg-slate-900 p-6 hover-lift">
             <div className="flex flex-wrap items-end justify-between gap-6">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">
@@ -1815,19 +1815,19 @@ export default async function Home() {
                     based on source diversity, coverage, and signal density
                   </p>
                 </div>
+                <p className="mt-2 text-[11px] text-slate-400">
+                  Composite index with 6 weighted components: Search Interest (30%),
+                  Market Momentum (20%), Availability Pressure (17%), Event Catalyst (13%),
+                  Community Sentiment (10%), Product Stress (10%).
+                </p>
               </div>
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-900 p-6 hover-lift">
+          <div className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 p-6 hover-lift">
             <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
               How this meter works
             </h3>
-            <p className="mt-3 text-sm text-slate-400">
-              Composite index with 6 weighted components: Search Interest (30%),
-              Market Momentum (20%), Availability Pressure (17%), Event Catalyst
-              (13%), Community Sentiment (10%), Product Stress (10%).
-            </p>
             <div className="mt-4 grid gap-3 lg:grid-cols-3">
               {sentiments.map((sentiment) => (
                 <div
