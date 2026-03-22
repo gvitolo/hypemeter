@@ -1,8 +1,45 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useMatchMedia } from "@/hooks/useMatchMedia";
 import type { MarketHighlightKey, MarketYearlyOverlay } from "@/lib/marketBacktrack";
 import { MARKET_CHART } from "@/lib/marketChartColors";
+
+/** Same breakpoint as chart slice in BacktrackMarketSection — mobile-only chart tweaks. */
+const MOBILE_CHART_ENHANCE_MQ = "(max-width: 767px)";
+
+type YScaleParams = { mode: "full" } | { mode: "zoom"; yMin: number; yMax: number };
+
+function collectScoresForYRange(history: YearScore[], marketOverlay: MarketYearlyOverlay | null): number[] {
+  const values = history.map((h) => h.score);
+  if (!marketOverlay || history.length === 0) return values;
+  const n = history.length;
+  for (const key of ["sp500", "btc", "nintendo"] as const) {
+    const arr = marketOverlay[key];
+    if (!arr || arr.length !== n) continue;
+    for (let i = 0; i < n; i++) {
+      const v = arr[i];
+      if (typeof v === "number" && !Number.isNaN(v)) values.push(v);
+    }
+  }
+  return values;
+}
+
+function computeMobileYScale(values: number[]): { yMin: number; yMax: number } {
+  if (values.length === 0) return { yMin: 0, yMax: 100 };
+  let vmin = Math.min(...values);
+  let vmax = Math.max(...values);
+  const spread = vmax - vmin;
+  const pad = spread < 1e-9 ? 10 : Math.max(spread * 0.12, 5);
+  let yMin = Math.max(0, vmin - pad);
+  let yMax = Math.min(100, vmax + pad);
+  if (yMax - yMin < 18) {
+    const mid = (yMin + yMax) / 2;
+    yMin = Math.max(0, mid - 12);
+    yMax = Math.min(100, mid + 12);
+  }
+  return { yMin, yMax };
+}
 
 type YearScore = {
   year: number;
@@ -53,6 +90,32 @@ function topPeakIndices(history: YearScore[], maxMarkers: number): Set<number> {
   return new Set(sorted.slice(0, maxMarkers));
 }
 
+/** Fuchsia footer pill when this year has no curated timeline label — still “something of note” per year. */
+function deriveFallbackYearSpotlight(
+  idx: number,
+  history: YearScore[],
+  localPeakSet: Set<number>,
+): string {
+  const h = history[idx];
+  if (!h) return "—";
+  const prev = idx > 0 ? history[idx - 1] : null;
+  const zone = zoneForScore(h.score);
+  const scores = history.map((x) => x.score);
+  const seriesMax = Math.max(...scores);
+  const seriesMin = Math.min(...scores);
+
+  if (localPeakSet.has(idx)) {
+    return `Hype peak · ${zone}`;
+  }
+  if (prev && Math.abs(h.score - prev.score) >= 14) {
+    const d = h.score - prev.score;
+    return d >= 0 ? `Strong upswing +${d}` : `Pullback ${d}`;
+  }
+  if (history.length > 1 && h.score === seriesMax) return `Window high · ${zone}`;
+  if (history.length > 1 && h.score === seriesMin) return `Window low · ${zone}`;
+  return `${zone} · hype ${h.score}`;
+}
+
 const MARKET_COLORS = {
   sp500: MARKET_CHART.sp500.rgba,
   btc: MARKET_CHART.btc.rgba,
@@ -78,6 +141,7 @@ export default function HypeBacktrackingChart({
   marketOverlay = null,
   highlightSeries = null,
 }: Props) {
+  const isMobileChartEnhance = useMatchMedia(MOBILE_CHART_ENHANCE_MQ);
   // SVG dimensions and drawing paddings for stable scaling across breakpoints.
   const chartWidth = 940;
   /** Taller plot area so the chart column matches Market Sidecar height on large screens. */
@@ -86,16 +150,50 @@ export default function HypeBacktrackingChart({
   const padY = 18;
   const safeWidth = chartWidth - padX * 2;
   const safeHeight = chartHeight - padY * 2;
+
+  const yScaleParams: YScaleParams = useMemo(() => {
+    if (!isMobileChartEnhance || history.length === 0) return { mode: "full" };
+    const { yMin, yMax } = computeMobileYScale(collectScoresForYRange(history, marketOverlay));
+    return { mode: "zoom", yMin, yMax };
+  }, [isMobileChartEnhance, history, marketOverlay]);
+
+  const scoreToY = useMemo(() => {
+    return (score: number) => {
+      if (yScaleParams.mode === "full") {
+        return padY + ((100 - score) / 100) * safeHeight;
+      }
+      const { yMin, yMax } = yScaleParams;
+      const span = Math.max(yMax - yMin, 1e-6);
+      return padY + ((yMax - score) / span) * safeHeight;
+    };
+  }, [padY, safeHeight, yScaleParams]);
+
+  const gridTicks = useMemo(() => {
+    if (yScaleParams.mode === "full") return [20, 40, 60, 80] as number[];
+    const { yMin, yMax } = yScaleParams;
+    const steps = 4;
+    return Array.from({ length: steps + 1 }, (_, i) => yMin + (i / steps) * (yMax - yMin));
+  }, [yScaleParams]);
+
   // Precompute render coordinates from score values (0-100) to SVG space.
   const points = useMemo(() => {
     return history.map((entry, idx) => {
       const x = padX + (idx / Math.max(history.length - 1, 1)) * safeWidth;
-      const y = padY + ((100 - entry.score) / 100) * safeHeight;
+      const y = scoreToY(entry.score);
       return { ...entry, x, y };
     });
-  }, [history, safeHeight, safeWidth]);
+  }, [history, padX, safeWidth, scoreToY]);
+
+  const hypeAreaPathD = useMemo(() => {
+    if (!isMobileChartEnhance || points.length === 0) return null;
+    const bottom = padY + safeHeight;
+    const pn = points[points.length - 1];
+    const spine = points.map((p) => `${p.x} ${p.y}`).join(" L ");
+    return `M ${points[0].x} ${bottom} L ${spine} L ${pn.x} ${bottom} Z`;
+  }, [isMobileChartEnhance, padY, points, safeHeight]);
 
   const hypePeakIndices = useMemo(() => topPeakIndices(history, 8), [history]);
+  const allLocalPeakSet = useMemo(() => new Set(localPeakIndices(history)), [history]);
 
   const marketLines = useMemo(() => {
     if (!marketOverlay || history.length === 0) return null;
@@ -110,17 +208,27 @@ export default function HypeBacktrackingChart({
         if (!values || values.length !== n) return null;
         const pts = values.map((score, idx) => {
           const x = padX + (idx / Math.max(n - 1, 1)) * safeWidth;
-          const y = padY + ((100 - score) / 100) * safeHeight;
+          const y = scoreToY(score);
           return `${x},${y}`;
         });
         return { key, points: pts.join(" "), color };
       })
       .filter((row): row is NonNullable<typeof row> => Boolean(row));
-  }, [history.length, marketOverlay, padX, padY, safeHeight, safeWidth]);
+  }, [history.length, marketOverlay, padX, safeWidth, scoreToY]);
 
   const polyline = points.map((point) => `${point.x},${point.y}`).join(" ");
   // Active point powers tooltip and stat cards; defaults to latest year.
   const [activeIndex, setActiveIndex] = useState(Math.max(points.length - 1, 0));
+
+  const scrubFromClientX = useCallback(
+    (clientX: number, bounds: DOMRect) => {
+      if (points.length <= 1) return;
+      const ratio = (clientX - bounds.left) / bounds.width;
+      const next = Math.round(Math.max(0, Math.min(1, ratio)) * (points.length - 1));
+      setActiveIndex(next);
+    },
+    [points.length],
+  );
   const active = points[activeIndex] ?? null;
   const prev = activeIndex > 0 ? points[activeIndex - 1] : null;
   const delta = active && prev ? active.score - prev.score : 0;
@@ -130,8 +238,14 @@ export default function HypeBacktrackingChart({
       : 0;
   const max = points.length > 0 ? Math.max(...points.map((point) => point.score)) : 0;
   const min = points.length > 0 ? Math.min(...points.map((point) => point.score)) : 0;
-  const activeEvents = active ? events.filter((event) => event.year === active.year) : [];
   const activeIsHypePeak = active ? hypePeakIndices.has(activeIndex) : false;
+
+  const yearSpotlightPills = useMemo(() => {
+    if (!active) return [];
+    const curated = events.filter((e) => e.year === active.year);
+    if (curated.length > 0) return curated.map((e) => e.label);
+    return [deriveFallbackYearSpotlight(activeIndex, history, allLocalPeakSet)];
+  }, [active, activeIndex, allLocalPeakSet, events, history]);
 
   const marketAtIndex = useMemo(() => {
     if (!marketOverlay || activeIndex < 0) return null;
@@ -186,11 +300,18 @@ export default function HypeBacktrackingChart({
           className="h-full w-full"
           preserveAspectRatio="xMidYMid meet"
         >
-        {[20, 40, 60, 80].map((tick) => {
-          const y = 18 + ((100 - tick) / 100) * (chartHeight - 36);
+        <defs>
+          <linearGradient id="hypeAreaGradientMobile" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="rgba(34, 211, 238, 0.42)" />
+            <stop offset="55%" stopColor="rgba(34, 211, 238, 0.12)" />
+            <stop offset="100%" stopColor="rgba(34, 211, 238, 0.02)" />
+          </linearGradient>
+        </defs>
+        {gridTicks.map((tick, tickIdx) => {
+          const y = scoreToY(tick);
           return (
             <line
-              key={tick}
+              key={`${tick}-${tickIdx}`}
               x1="20"
               x2={chartWidth - 20}
               y1={y}
@@ -200,6 +321,9 @@ export default function HypeBacktrackingChart({
             />
           );
         })}
+        {hypeAreaPathD ? (
+          <path d={hypeAreaPathD} fill="url(#hypeAreaGradientMobile)" stroke="none" />
+        ) : null}
         {/* Hype streamline first — thin market lines are drawn ON TOP so they stay visible */}
         <polyline
           fill="none"
@@ -232,25 +356,34 @@ export default function HypeBacktrackingChart({
           width={safeWidth}
           height={safeHeight}
           fill="transparent"
-          // Allow hover scrubbing across the full chart area, not just circles.
+          className="touch-none"
+          // Allow hover / touch scrubbing across the full chart area, not just circles.
           onMouseMove={(event) => {
-            if (points.length <= 1) return;
-            const bounds = event.currentTarget.getBoundingClientRect();
-            const ratio = (event.clientX - bounds.left) / bounds.width;
-            const next = Math.round(Math.max(0, Math.min(1, ratio)) * (points.length - 1));
-            setActiveIndex(next);
+            scrubFromClientX(event.clientX, event.currentTarget.getBoundingClientRect());
+          }}
+          onTouchStart={(event) => {
+            const t = event.touches[0];
+            if (!t) return;
+            scrubFromClientX(t.clientX, event.currentTarget.getBoundingClientRect());
+          }}
+          onTouchMove={(event) => {
+            const t = event.touches[0];
+            if (!t) return;
+            event.preventDefault();
+            scrubFromClientX(t.clientX, event.currentTarget.getBoundingClientRect());
           }}
         />
         {points.map((point, idx) => {
           const isPeak = hypePeakIndices.has(idx);
           const isLastYear = point.year === points[points.length - 1]?.year;
+          const m = isMobileChartEnhance ? 1.12 : 1;
           return (
             <g key={point.year}>
               <circle
                 cx={point.x}
                 cy={point.y}
                 r={
-                  activeIndex === idx ? 8 : isPeak ? 6.4 : point.year % 5 === 0 ? 5.2 : 3.4
+                  (activeIndex === idx ? 8 : isPeak ? 6.4 : point.year % 5 === 0 ? 5.2 : 3.4) * m
                 }
                 fill={
                   activeIndex === idx
@@ -356,16 +489,21 @@ export default function HypeBacktrackingChart({
               <span className="text-[#fb7185]/90">NTDOY</span> (0–100 norm).
             </>
           ) : null}
+          {isMobileChartEnhance && yScaleParams.mode === "zoom" ? (
+            <span className="mt-1 block text-[10px] text-slate-600 md:hidden">
+              Vertical scale fits this window so moves read larger (still 0–100 data).
+            </span>
+          ) : null}
         </p>
-        <div className="shrink-0">
-          {activeEvents.length > 0 ? (
-            <div className="flex gap-1.5 overflow-x-auto whitespace-nowrap">
-              {activeEvents.map((event) => (
+        <div className="min-h-[1.75rem] shrink-0">
+          {yearSpotlightPills.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5 overflow-x-auto transition-opacity duration-150">
+              {yearSpotlightPills.map((label, i) => (
                 <span
-                  key={`${event.year}-${event.label}`}
+                  key={`${active?.year}-spotlight-${i}-${label}`}
                   className="rounded-full border border-fuchsia-400/35 bg-fuchsia-500/10 px-2 py-0.5 text-[11px] text-fuchsia-200"
                 >
-                  {event.label}
+                  {label}
                 </span>
               ))}
             </div>
