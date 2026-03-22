@@ -60,26 +60,30 @@ export default function HypeBacktrackingChart({ history, events = [] }: Props) {
 
   return (
     <div className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-3">
-      <div className="mb-3 grid gap-2 sm:grid-cols-4">
-        <div className="rounded-lg border border-white/10 bg-slate-900 p-2">
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="flex min-h-[4.75rem] flex-col justify-center rounded-lg border border-white/10 bg-slate-900 p-2">
           <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">selected</p>
-          <p className="text-sm font-semibold text-cyan-300">
+          <p className="mt-1 min-h-[1.375rem] text-sm font-semibold tabular-nums leading-none text-cyan-300">
             {active ? `${active.year} • ${active.score}` : "N/A"}
           </p>
         </div>
-        <div className="rounded-lg border border-white/10 bg-slate-900 p-2">
+        <div className="flex min-h-[4.75rem] flex-col justify-center rounded-lg border border-white/10 bg-slate-900 p-2">
           <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">delta</p>
-          <p className={`text-sm font-semibold ${delta >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+          <p
+            className={`mt-1 min-h-[1.375rem] text-sm font-semibold tabular-nums leading-none ${delta >= 0 ? "text-emerald-300" : "text-rose-300"}`}
+          >
             {prev ? `${delta >= 0 ? "+" : ""}${delta}` : "N/A"}
           </p>
         </div>
-        <div className="rounded-lg border border-white/10 bg-slate-900 p-2">
+        <div className="flex min-h-[4.75rem] flex-col justify-center rounded-lg border border-white/10 bg-slate-900 p-2">
           <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">avg</p>
-          <p className="text-sm font-semibold text-slate-200">{avg}</p>
+          <p className="mt-1 min-h-[1.375rem] text-sm font-semibold tabular-nums leading-none text-slate-200">
+            {avg}
+          </p>
         </div>
-        <div className="rounded-lg border border-white/10 bg-slate-900 p-2">
+        <div className="flex min-h-[4.75rem] flex-col justify-center rounded-lg border border-white/10 bg-slate-900 p-2">
           <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">range</p>
-          <p className="text-sm font-semibold text-slate-200">
+          <p className="mt-1 min-h-[1.375rem] text-sm font-semibold tabular-nums leading-none text-slate-200">
             {min} - {max}
           </p>
         </div>
@@ -161,7 +165,8 @@ export default function HypeBacktrackingChart({ history, events = [] }: Props) {
                     ? "#f472b6"
                     : "#22d3ee"
               }
-              className="cursor-pointer transition-all duration-150"
+              className="cursor-pointer"
+              style={{ transition: "fill 120ms ease" }}
               onMouseEnter={() => setActiveIndex(idx)}
               onClick={() => setActiveIndex(idx)}
             />

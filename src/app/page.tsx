@@ -39,6 +39,8 @@ type MarketSnapshot = {
   bitcoin: number | null;
   /** Nintendo Co. ADR (US OTC), USD — see Market Sidecar. */
   nintendo: number | null;
+  /** Prior session close (USD), when available — Yahoo quote or daily chart. */
+  nintendoPreviousClose: number | null;
   sp500GrowthPct: number | null;
   bitcoinGrowthPct: number | null;
   nintendoGrowthPct: number | null;
@@ -112,6 +114,12 @@ const STOOQ_SP500_URL = "https://stooq.com/q/l/?s=%5Espx&i=d";
 const STOOQ_BTC_URL = "https://stooq.com/q/l/?s=btcusd&i=d";
 /** Nintendo ADR (US OTC) — Stooq daily line. */
 const STOOQ_NTDY_URL = "https://stooq.com/q/l/?s=ntdoy.us&i=d";
+/** Daily candles — reliable when v7 quote omits OTC fields server-side. */
+const YAHOO_CHART_NTDY_URL =
+  "https://query1.finance.yahoo.com/v8/finance/chart/NTDOY?interval=1d&range=3mo";
+const YAHOO_QUOTE_SP500 = "https://finance.yahoo.com/quote/%5EGSPC";
+const YAHOO_QUOTE_BTC = "https://finance.yahoo.com/quote/BTC-USD";
+const YAHOO_QUOTE_NTDY = "https://finance.yahoo.com/quote/NTDOY";
 const COINGECKO_BTC_URL =
   "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd";
 const GOOGLE_TRENDS_DAILY_RSS = "https://trends.google.com/trending/rss?geo=US";
@@ -1880,6 +1888,8 @@ type YahooFinanceQuoteBundle = {
       symbol?: string;
       regularMarketPrice?: number;
       regularMarketChangePercent?: number;
+      regularMarketPreviousClose?: number;
+      postMarketPrice?: number;
     }>;
   };
 };
@@ -1887,18 +1897,70 @@ type YahooFinanceQuoteBundle = {
 function parseYahooSymbol(
   data: YahooFinanceQuoteBundle,
   symbol: string,
-): { price: number | null; growthPct: number | null } {
+): { price: number | null; growthPct: number | null; previousClose: number | null } {
   const entry = data.quoteResponse?.result?.find((e) => e.symbol === symbol);
-  const price = entry?.regularMarketPrice;
+  const prevClose = entry?.regularMarketPreviousClose;
+  const rawPrice =
+    entry?.regularMarketPrice ?? entry?.postMarketPrice ?? prevClose ?? undefined;
   const growthPct = entry?.regularMarketChangePercent;
+  const price =
+    rawPrice !== undefined && rawPrice !== null && !Number.isNaN(Number(rawPrice))
+      ? Number(rawPrice)
+      : null;
+  const previousClose =
+    prevClose !== undefined && prevClose !== null && !Number.isNaN(Number(prevClose))
+      ? Number(prevClose)
+      : null;
   return {
-    price:
-      price !== undefined && price !== null && !Number.isNaN(Number(price)) ? Number(price) : null,
+    price,
     growthPct:
       growthPct !== undefined && growthPct !== null && !Number.isNaN(Number(growthPct))
         ? Number(growthPct)
         : null,
+    previousClose,
   };
+}
+
+/** Last two daily closes from Yahoo v8 chart (skips nulls — weekends/holidays). */
+function parseYahooChartLastTwoCloses(json: unknown): { last: number | null; prev: number | null } {
+  const result = (json as { chart?: { result?: unknown[] } })?.chart?.result?.[0] as
+    | {
+        indicators?: { quote?: Array<{ close?: Array<number | null> }> };
+      }
+    | undefined;
+  const raw = result?.indicators?.quote?.[0]?.close;
+  const closes = Array.isArray(raw)
+    ? raw.reduce<number[]>((acc, c) => {
+        if (typeof c === "number" && !Number.isNaN(c)) acc.push(c);
+        return acc;
+      }, [])
+    : [];
+  if (closes.length === 0) return { last: null, prev: null };
+  const last = closes[closes.length - 1] ?? null;
+  const prev = closes.length >= 2 ? closes[closes.length - 2] ?? null : null;
+  return { last, prev };
+}
+
+async function fetchNintendoFromYahooChart(): Promise<{
+  price: number | null;
+  previousClose: number | null;
+  growthPct: number | null;
+}> {
+  try {
+    const res = await fetch(YAHOO_CHART_NTDY_URL, {
+      next: { revalidate: 900 },
+      headers: { "user-agent": "Mozilla/5.0 hypemeter" },
+    });
+    if (!res.ok) return { price: null, previousClose: null, growthPct: null };
+    const json = await res.json();
+    const { last, prev } = parseYahooChartLastTwoCloses(json);
+    if (last === null) return { price: null, previousClose: null, growthPct: null };
+    const growthPct =
+      prev !== null && prev > 0 ? ((last - prev) / prev) * 100 : null;
+    return { price: last, previousClose: prev, growthPct };
+  } catch {
+    return { price: null, previousClose: null, growthPct: null };
+  }
 }
 
 // Fetch live S&P 500 + BTC + Nintendo ADR (NTDOY) with layered fallbacks (Stooq -> CoinGecko/Yahoo).
@@ -1907,6 +1969,7 @@ async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
     sp500: null,
     bitcoin: null,
     nintendo: null,
+    nintendoPreviousClose: null,
     sp500GrowthPct: null,
     bitcoinGrowthPct: null,
     nintendoGrowthPct: null,
@@ -1954,11 +2017,20 @@ async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
     const yahooNtdy = parseYahooSymbol(yahooData, "NTDOY");
     let nintendo = yahooNtdy.price;
     let nintendoGrowthPct = yahooNtdy.growthPct;
+    let nintendoPreviousClose = yahooNtdy.previousClose;
     if (nintendo === null) {
       const ntdRes = await fetch(STOOQ_NTDY_URL, { next: { revalidate: 900 } });
       const ntd = ntdRes.ok ? parseStooqMetrics(await ntdRes.text()) : { close: null, growthPct: null };
       nintendo = ntd.close;
       nintendoGrowthPct = ntd.growthPct;
+    }
+    if (nintendo === null || nintendoGrowthPct === null || nintendoPreviousClose === null) {
+      const chart = await fetchNintendoFromYahooChart();
+      if (chart.price !== null) {
+        if (nintendo === null) nintendo = chart.price;
+        if (nintendoPreviousClose === null) nintendoPreviousClose = chart.previousClose;
+        if (nintendoGrowthPct === null && chart.growthPct !== null) nintendoGrowthPct = chart.growthPct;
+      }
     }
     const sp500 = spx.close;
     const bitcoin = btc.close;
@@ -1967,6 +2039,7 @@ async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
         sp500,
         bitcoin,
         nintendo,
+        nintendoPreviousClose,
         sp500GrowthPct: spx.growthPct,
         bitcoinGrowthPct: btc.growthPct,
         nintendoGrowthPct,
@@ -2002,11 +2075,20 @@ async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
     const bitcoin = btcData.bitcoin?.usd ?? yahooBtc.price;
     let nintendo = yahooNtdy.price;
     let nintendoGrowthPct = yahooNtdy.growthPct;
+    let nintendoPreviousClose = yahooNtdy.previousClose;
     if (nintendo === null) {
       const ntdRes = await fetch(STOOQ_NTDY_URL, { next: { revalidate: 900 } });
       const ntd = ntdRes.ok ? parseStooqMetrics(await ntdRes.text()) : { close: null, growthPct: null };
       nintendo = ntd.close;
       nintendoGrowthPct = ntd.growthPct;
+    }
+    if (nintendo === null || nintendoGrowthPct === null || nintendoPreviousClose === null) {
+      const chart = await fetchNintendoFromYahooChart();
+      if (chart.price !== null) {
+        if (nintendo === null) nintendo = chart.price;
+        if (nintendoPreviousClose === null) nintendoPreviousClose = chart.previousClose;
+        if (nintendoGrowthPct === null && chart.growthPct !== null) nintendoGrowthPct = chart.growthPct;
+      }
     }
     const hasValues =
       sp500 !== null && !Number.isNaN(sp500) && bitcoin !== null && !Number.isNaN(bitcoin);
@@ -2016,6 +2098,7 @@ async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
         sp500,
         bitcoin,
         nintendo,
+        nintendoPreviousClose,
         sp500GrowthPct: spx.growthPct,
         bitcoinGrowthPct: yahooBtc.growthPct,
         nintendoGrowthPct,
@@ -2535,44 +2618,60 @@ export default async function Home() {
               </p>
 
               <div className="mt-4 space-y-3">
-                <div className="rounded-xl border border-white/10 bg-slate-900 p-3 hover-lift">
-                  <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
-                    S&P 500
-                  </p>
-                  <p className="mt-1 text-2xl font-bold text-cyan-300">
+                <a
+                  href={YAHOO_QUOTE_SP500}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex h-[7.25rem] flex-col justify-between rounded-xl border border-white/10 bg-slate-900 p-3 transition-colors hover:border-cyan-400/40 hover:bg-slate-900/90"
+                >
+                  <p className="text-xs uppercase tracking-[0.12em] text-slate-400">S&P 500</p>
+                  <p className="text-2xl font-bold tabular-nums leading-none text-cyan-300">
                     {formatGrowthPct(market.sp500GrowthPct)}
                   </p>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="line-clamp-2 min-h-[2.5rem] text-[11px] leading-snug text-slate-500">
                     level: {formatUsd(market.sp500)}
                   </p>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-slate-900 p-3 hover-lift">
-                  <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
-                    Bitcoin
-                  </p>
-                  <p className="mt-1 text-2xl font-bold text-amber-300">
+                </a>
+                <a
+                  href={YAHOO_QUOTE_BTC}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex h-[7.25rem] flex-col justify-between rounded-xl border border-white/10 bg-slate-900 p-3 transition-colors hover:border-cyan-400/40 hover:bg-slate-900/90"
+                >
+                  <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Bitcoin</p>
+                  <p className="text-2xl font-bold tabular-nums leading-none text-amber-300">
                     {formatGrowthPct(market.bitcoinGrowthPct)}
                   </p>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="line-clamp-2 min-h-[2.5rem] text-[11px] leading-snug text-slate-500">
                     level: {formatUsd(market.bitcoin)}
                   </p>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-slate-900 p-3 hover-lift">
+                </a>
+                <a
+                  href={YAHOO_QUOTE_NTDY}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex h-[7.25rem] flex-col justify-between rounded-xl border border-white/10 bg-slate-900 p-3 transition-colors hover:border-cyan-400/40 hover:bg-slate-900/90"
+                >
                   <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
                     Nintendo (NTDOY)
                   </p>
-                  <p className="mt-1 text-2xl font-bold text-red-400">
+                  <p className="text-2xl font-bold tabular-nums leading-none text-red-400">
                     {formatGrowthPct(market.nintendoGrowthPct)}
                   </p>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="line-clamp-2 min-h-[2.5rem] text-[11px] leading-snug text-slate-500">
                     level: {formatUsd(market.nintendo)}
+                    {market.nintendoPreviousClose !== null ? (
+                      <span className="text-slate-500">
+                        {" "}
+                        · prev {formatUsd(market.nintendoPreviousClose)}
+                      </span>
+                    ) : null}
                   </p>
-                </div>
+                </a>
               </div>
 
               <p className="mt-4 text-[11px] text-slate-500">
-                Source: Yahoo Finance — S&P 500, Bitcoin, Nintendo ADR (NTDOY); fallback: Stooq +
-                CoinGecko
+                Source: Yahoo Finance (quotes + daily chart for NTDOY); fallback: Stooq + CoinGecko
               </p>
               <p className="mt-1 text-[11px] text-slate-500">
                 Last market update: {market.updatedAt ?? "Unavailable"}
