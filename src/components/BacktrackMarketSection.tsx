@@ -75,7 +75,7 @@ export default function BacktrackMarketSection({
             >
               <p className="text-xs uppercase tracking-[0.12em] text-slate-400">S&P 500</p>
               <p
-                className={`text-2xl font-bold tabular-nums leading-none ${growthPctColorClass(market.sp500GrowthPct, "emerald")}`}
+                className={`text-2xl font-bold tabular-nums leading-none ${growthPctColorClass(market.sp500GrowthPct, "sp500")}`}
               >
                 {formatGrowthPct(market.sp500GrowthPct)}
               </p>
@@ -97,7 +97,7 @@ export default function BacktrackMarketSection({
             >
               <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Bitcoin</p>
               <p
-                className={`text-2xl font-bold tabular-nums leading-none ${growthPctColorClass(market.bitcoinGrowthPct, "amber")}`}
+                className={`text-2xl font-bold tabular-nums leading-none ${growthPctColorClass(market.bitcoinGrowthPct, "btc")}`}
               >
                 {formatGrowthPct(market.bitcoinGrowthPct)}
               </p>
@@ -119,7 +119,7 @@ export default function BacktrackMarketSection({
             >
               <p className="text-xs uppercase tracking-[0.12em] text-slate-400">Nintendo (NTDOY)</p>
               <p
-                className={`text-2xl font-bold tabular-nums leading-none ${growthPctColorClass(market.nintendoGrowthPct, "rose")}`}
+                className={`text-2xl font-bold tabular-nums leading-none ${growthPctColorClass(market.nintendoGrowthPct, "nintendo")}`}
               >
                 {formatGrowthPct(market.nintendoGrowthPct)}
               </p>

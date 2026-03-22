@@ -2297,7 +2297,7 @@ export default async function Home() {
                     </div>
                     <p
                       className={`mt-1 text-[10px] ${
-                        platform.deltaPct >= 0 ? "text-emerald-300" : "text-rose-300"
+                        platform.deltaPct >= 0 ? "text-emerald-300" : "text-slate-300"
                       }`}
                     >
                       {platform.deltaPct >= 0 ? "▲" : "▼"} {Math.abs(platform.deltaPct).toFixed(0)}% vs day before

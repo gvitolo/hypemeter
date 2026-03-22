@@ -17,28 +17,29 @@ export function formatGrowthPct(value: number | null) {
   return `${sign}${value.toFixed(2)}%`;
 }
 
+import type { MarketHighlightKey } from "@/lib/marketBacktrack";
+
 /**
- * % change colors match `HypeBacktrackingChart` line fills (#34d399 / #fbbf24 / #fb7185).
- * Negative % keeps S&P green and BTC gold; only Nintendo uses rose (the “red” line).
+ * Sidecar % uses the same hex as chart strokes (`MARKET_CHART`); sign does not switch to red.
  */
 export function growthPctColorClass(
   value: number | null,
-  positiveHue: "emerald" | "amber" | "rose" = "emerald",
+  series: MarketHighlightKey,
 ): string {
-  if (value === null || Number.isNaN(value)) {
-    if (positiveHue === "amber") return "text-amber-400/85";
-    if (positiveHue === "rose") return "text-rose-400/85";
-    return "text-emerald-400/85";
+  const raw = value as unknown;
+  const n =
+    typeof raw === "string"
+      ? Number(raw.trim())
+      : typeof raw === "number"
+        ? raw
+        : NaN;
+  if (value === null || raw === undefined || Number.isNaN(n)) {
+    if (series === "btc") return "text-[#fbbf24]/90";
+    if (series === "nintendo") return "text-[#fb7185]/90";
+    return "text-[#34d399]/90";
   }
-  if (value < 0) {
-    if (positiveHue === "amber") return "text-amber-500";
-    if (positiveHue === "rose") return "text-rose-400";
-    return "text-emerald-500";
-  }
-  if (value > 0) {
-    if (positiveHue === "amber") return "text-amber-400";
-    if (positiveHue === "rose") return "text-rose-400";
-    return "text-emerald-400";
-  }
-  return "text-slate-300";
+  if (n === 0) return "text-slate-300";
+  if (series === "btc") return "text-[#fbbf24]";
+  if (series === "nintendo") return "text-[#fb7185]";
+  return "text-[#34d399]";
 }

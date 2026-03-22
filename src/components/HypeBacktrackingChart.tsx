@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { MarketHighlightKey, MarketYearlyOverlay } from "@/lib/marketBacktrack";
+import { MARKET_CHART } from "@/lib/marketChartColors";
 
 type YearScore = {
   year: number;
@@ -53,16 +54,16 @@ function topPeakIndices(history: YearScore[], maxMarkers: number): Set<number> {
 }
 
 const MARKET_COLORS = {
-  sp500: "rgba(52, 211, 153, 0.85)",
-  btc: "rgba(251, 191, 36, 0.85)",
-  nintendo: "rgba(251, 113, 133, 0.85)",
+  sp500: MARKET_CHART.sp500.rgba,
+  btc: MARKET_CHART.btc.rgba,
+  nintendo: MARKET_CHART.nintendo.rgba,
 } as const;
 
 /** Solid fills for tooltip text (match thin lines). */
 const MARKET_TOOLTIP_FILLS: Record<MarketHighlightKey, string> = {
-  sp500: "#34d399",
-  btc: "#fbbf24",
-  nintendo: "#fb7185",
+  sp500: MARKET_CHART.sp500.hex,
+  btc: MARKET_CHART.btc.hex,
+  nintendo: MARKET_CHART.nintendo.hex,
 };
 
 const MARKET_SHORT_LABEL: Record<MarketHighlightKey, string> = {
@@ -159,7 +160,7 @@ export default function HypeBacktrackingChart({
         <div className="flex min-h-[4.75rem] flex-col justify-center rounded-lg border border-white/10 bg-slate-900 p-2">
           <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">delta</p>
           <p
-            className={`mt-1 min-h-[1.375rem] text-sm font-semibold tabular-nums leading-none ${delta >= 0 ? "text-emerald-300" : "text-rose-300"}`}
+            className={`mt-1 min-h-[1.375rem] text-sm font-semibold tabular-nums leading-none ${delta >= 0 ? "text-emerald-300" : "text-slate-300"}`}
           >
             {prev ? `${delta >= 0 ? "+" : ""}${delta}` : "N/A"}
           </p>
@@ -344,9 +345,9 @@ export default function HypeBacktrackingChart({
           <span className="text-slate-600">
             {" "}
             · Thin:{" "}
-            <span className="text-emerald-400/90">S&amp;P</span> /{" "}
-            <span className="text-amber-300/90">BTC</span> /{" "}
-            <span className="text-rose-300/90">NTDOY</span> (norm. 0–100)
+            <span className="text-[#34d399]/90">S&amp;P</span> /{" "}
+            <span className="text-[#fbbf24]/90">BTC</span> /{" "}
+            <span className="text-[#fb7185]/90">NTDOY</span> (norm. 0–100)
           </span>
         ) : null}
       </p>
