@@ -1971,18 +1971,18 @@ export default async function Home() {
   };
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-4 py-10 text-slate-100 md:px-8">
+    <main className="relative min-h-screen min-w-0 max-w-full overflow-x-clip bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 px-4 py-10 text-slate-100 md:px-8">
       <div className="ambient-orb orb-a" />
       <div className="ambient-orb orb-b" />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
       />
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 xl:max-w-7xl 2xl:max-w-[min(92rem,calc(100vw-3rem))]">
+      <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-6 xl:max-w-7xl 2xl:max-w-[min(92rem,100%)]">
         <ScrollReveal>
           <header className="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-2xl shadow-cyan-950/30 backdrop-blur hover-lift">
-            <div className="grid items-start gap-4 lg:grid-cols-[1fr_auto]">
-              <div>
+            <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+              <div className="min-w-0">
                 <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">
                   Pokemon Fear & Greed Remix
                 </p>
@@ -2000,7 +2000,7 @@ export default async function Home() {
                   href={pokemonOfDayArticle?.link ?? "#"}
                   target={pokemonOfDayArticle ? "_blank" : undefined}
                   rel={pokemonOfDayArticle ? "noreferrer" : undefined}
-                  className={`block rounded-2xl border border-cyan-400/25 bg-slate-950/80 p-3 lg:min-w-64 ${
+                  className={`block max-w-full rounded-2xl border border-cyan-400/25 bg-slate-950/80 p-3 lg:min-w-64 lg:max-w-sm ${
                     pokemonOfDayArticle ? "hover:border-cyan-300/50" : "pointer-events-none"
                   }`}
                   title={
@@ -2059,7 +2059,7 @@ export default async function Home() {
         </ScrollReveal>
 
         <ScrollReveal delayMs={60}>
-          <section className="grid items-stretch gap-6 lg:grid-cols-2">
+          <section className="grid min-w-0 items-stretch gap-6 lg:grid-cols-2">
           <div className="h-full rounded-3xl border border-white/10 bg-slate-900 p-6 hover-lift sm:p-7">
             {/* Main read: score + circular meter stay on one row from `sm` up (no flex-wrap jump). */}
             <div className="grid grid-cols-1 items-center gap-5 min-[420px]:grid-cols-[minmax(0,1fr)_auto] min-[420px]:gap-4 lg:gap-6">
@@ -2248,18 +2248,20 @@ export default async function Home() {
 
         <ScrollReveal delayMs={90}>
         <section className="rounded-3xl border border-white/10 bg-slate-900 p-6 hover-lift">
-          <div className="flex items-center justify-between gap-4">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <h3 className="min-w-0 shrink text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
               Hype Backtracking (2005 → now)
             </h3>
-            <p className="text-xs text-slate-400">
+            <p className="shrink-0 text-xs text-slate-400">
               First year: {history[0]?.year} • Latest:{" "}
               {history[history.length - 1]?.year}
             </p>
           </div>
-          <div className="mt-4 grid gap-4 lg:grid-cols-[1.5fr_0.7fr]">
+          <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,0.7fr)]">
+            <div className="min-w-0">
             <HypeBacktrackingChart history={history} events={timelineEventSignals} />
-            <aside className="relative overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-4 hover-lift">
+            </div>
+            <aside className="relative min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-4 hover-lift">
               <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
                 Market Sidecar
               </p>

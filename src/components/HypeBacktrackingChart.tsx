@@ -59,7 +59,7 @@ export default function HypeBacktrackingChart({ history, events = [] }: Props) {
   const activeEvents = active ? events.filter((event) => event.year === active.year) : [];
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-3">
+    <div className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-3">
       <div className="mb-3 grid gap-2 sm:grid-cols-4">
         <div className="rounded-lg border border-white/10 bg-slate-900 p-2">
           <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">selected</p>
