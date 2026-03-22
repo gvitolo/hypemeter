@@ -9,9 +9,8 @@ export const STOOQ_QUOTE_SPX = "https://stooq.com/q/?s=%5Espx";
 export const STOOQ_QUOTE_BTCUSD = "https://stooq.com/q/?s=btcusd";
 /** Stooq Tokyo listing — Nintendo (opens when clicking the sidecar box). */
 export const STOOQ_QUOTE_7974_JP = "https://stooq.com/q/?s=7974.jp";
-/** World Bank — US annual CPI inflation % (same series as chart overlay). */
-export const WORLD_BANK_US_CPI_INFLATION =
-  "https://data.worldbank.org/indicator/FP.CPI.TOTL.ZG?locations=US";
+/** FRED CPIAUCSL — US CPI index (same source as overlay YoY %). */
+export const FRED_CPIAUCSL_SERIES = "https://fred.stlouisfed.org/series/CPIAUCSL";
 /** Binance spot — when sidecar uses Binance klines fallback. */
 export const BINANCE_BTC_USDT = "https://www.binance.com/en/trade/BTC_USDT";
 /** CoinGecko — when price comes from CG simple/price. */

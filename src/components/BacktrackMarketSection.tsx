@@ -12,7 +12,7 @@ import {
   STOOQ_QUOTE_7974_JP,
   STOOQ_QUOTE_BTCUSD,
   STOOQ_QUOTE_SPX,
-  WORLD_BANK_US_CPI_INFLATION,
+  FRED_CPIAUCSL_SERIES,
   YAHOO_QUOTE_BTC,
   YAHOO_QUOTE_SP500,
 } from "@/lib/yahooQuotes";
@@ -241,7 +241,7 @@ export default function BacktrackMarketSection({
               </p>
             </a>
             <a
-              href={WORLD_BANK_US_CPI_INFLATION}
+              href={FRED_CPIAUCSL_SERIES}
               target="_blank"
               rel="noopener noreferrer"
               className={`flex flex-col gap-1 rounded-xl border bg-slate-900/90 px-3 py-2.5 transition-colors hover:bg-slate-900 ${
@@ -254,7 +254,7 @@ export default function BacktrackMarketSection({
             >
               <p className="text-[10px] uppercase tracking-[0.12em] text-slate-400">
                 US CPI inflation{" "}
-                <span className="font-normal normal-case text-slate-600">· World Bank annual</span>
+                <span className="font-normal normal-case text-slate-600">· FRED CPIAUCSL YoY</span>
               </p>
               <p
                 className={`text-xl font-bold tabular-nums leading-tight sm:text-2xl ${growthPctColorClass(
@@ -269,7 +269,7 @@ export default function BacktrackMarketSection({
               <p className="text-[11px] leading-snug text-slate-500">
                 {inflationSidecar.hasData && inflationSidecar.year !== null
                   ? `Latest in chart: ${inflationSidecar.year} (YoY %)`
-                  : "Annual CPI series (overlay)"}
+                  : "CPI YoY from monthly index (overlay)"}
               </p>
             </a>
           </div>

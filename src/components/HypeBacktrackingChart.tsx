@@ -498,7 +498,7 @@ export default function HypeBacktrackingChart({
                       </tspan>
                       <tspan fill="#64748b" fontSize="9" fontWeight="400">
                         {" "}
-                        (US)
+                        (FRED YoY)
                       </tspan>
                     </text>
                   ) : null}

@@ -11,7 +11,7 @@ export type MarketYearlyOverlay = {
   sp500: number[];
   btc: number[];
   nintendo: number[];
-  /** US CPI annual inflation % (World Bank FP.CPI.TOTL.ZG), aligned to chart years. */
+  /** US CPI YoY % (FRED CPIAUCSL: last month in year vs same month prior year). */
   inflationYoY: number[];
   /** Same inflation series min–max normalized to 0–100 (thin line on chart). */
   inflation: number[];
@@ -61,32 +61,82 @@ function mergeYearlyMaps(yahoo: YearlyCloseMap, stooq: YearlyCloseMap): YearlyCl
   return out;
 }
 
-/** World Bank: US annual CPI inflation % (consumer prices, YoY). */
-async function fetchWorldBankUsInflationYoYByYear(): Promise<Map<number, number>> {
+type CpiMonthRow = { y: number; m: number; t: number; cpi: number };
+
+/**
+ * FRED `fredgraph.csv` for CPIAUCSL (monthly index). Used to build YoY % by calendar year.
+ * Exported for unit tests.
+ */
+export function parseFredCpiCsvToMonthlyRows(csv: string): CpiMonthRow[] {
+  const lines = csv
+    .trim()
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length < 2) return [];
+  const out: CpiMonthRow[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(",");
+    const dateStr = cols[0]?.trim();
+    const valStr = cols[1]?.trim();
+    if (!dateStr || valStr === undefined) continue;
+    if (!/^\d{4}-\d{2}-\d{2}/.test(dateStr)) continue;
+    const cpi = Number(valStr);
+    if (Number.isNaN(cpi)) continue;
+    const d = new Date(dateStr + "T12:00:00Z");
+    if (Number.isNaN(d.getTime())) continue;
+    out.push({ y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, t: d.getTime(), cpi });
+  }
+  out.sort((a, b) => a.t - b.t);
+  return out;
+}
+
+/**
+ * For each calendar year, YoY % = (CPI at last available month in Y) / (CPI at same month in Y−1) − 1.
+ * Matches how “current” inflation is read when December isn’t published yet (e.g. uses Nov vs Nov).
+ */
+export function buildCpiYoYPercentByYearFromMonthlyRows(monthly: CpiMonthRow[]): Map<number, number> {
   const map = new Map<number, number>();
+  if (monthly.length === 0) return map;
+  const byYearMonth = new Map<string, number>();
+  for (const p of monthly) {
+    byYearMonth.set(`${p.y}-${String(p.m).padStart(2, "0")}`, p.cpi);
+  }
+  const years = [...new Set(monthly.map((p) => p.y))].sort((a, b) => a - b);
+  for (const y of years) {
+    let cpiNow: number | null = null;
+    let lastM = 0;
+    for (let m = 12; m >= 1; m--) {
+      const v = byYearMonth.get(`${y}-${String(m).padStart(2, "0")}`);
+      if (v !== undefined) {
+        cpiNow = v;
+        lastM = m;
+        break;
+      }
+    }
+    if (cpiNow === null || lastM === 0) continue;
+    const cpiPrev = byYearMonth.get(`${y - 1}-${String(lastM).padStart(2, "0")}`);
+    if (cpiPrev === undefined || cpiPrev === 0) continue;
+    map.set(y, (cpiNow / cpiPrev - 1) * 100);
+  }
+  return map;
+}
+
+/** FRED CPIAUCSL — updated monthly; includes recent years (unlike lagging World Bank annual tables). */
+async function fetchFredCpiYoYByYear(): Promise<Map<number, number>> {
   try {
-    const url =
-      "https://api.worldbank.org/v2/country/USA/indicator/FP.CPI.TOTL.ZG?format=json&per_page=500&date=1960:2040";
+    const url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL";
     const res = await fetch(url, {
       next: { revalidate: 86400 },
       headers: { "user-agent": STOOQ_HIST_UA },
     });
-    if (!res.ok) return map;
-    const json = (await res.json()) as unknown;
-    if (!Array.isArray(json) || json.length < 2) return map;
-    const rows = json[1] as Array<{ date?: string; value?: number | null }>;
-    for (const row of rows) {
-      const raw = row.date;
-      const y = raw ? parseInt(String(raw).slice(0, 4), 10) : NaN;
-      const v = row.value;
-      if (!Number.isNaN(y) && v != null && typeof v === "number" && !Number.isNaN(v)) {
-        map.set(y, v);
-      }
-    }
+    if (!res.ok) return new Map();
+    const text = await res.text();
+    const rows = parseFredCpiCsvToMonthlyRows(text);
+    return buildCpiYoYPercentByYearFromMonthlyRows(rows);
   } catch {
-    // ignore
+    return new Map();
   }
-  return map;
 }
 
 async function fetchStooqYearlyClosesBySymbol(stooqSymbol: string): Promise<YearlyCloseMap> {
@@ -209,7 +259,7 @@ export async function fetchMarketYearlyOverlay(years: number[]): Promise<MarketY
     fetchYahooYearlyCloses("NTDOY"),
     fetchStooqYearlyClosesBySymbol("^spx"),
     fetchStooqYearlyClosesBySymbol("btcusd"),
-    fetchWorldBankUsInflationYoYByYear(),
+    fetchFredCpiYoYByYear(),
   ]);
   const spMap = mergeYearlyMaps(spY, spS);
   const btcMap = mergeYearlyMaps(btcY, btcS);

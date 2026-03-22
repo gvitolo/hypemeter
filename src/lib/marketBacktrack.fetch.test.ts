@@ -13,6 +13,19 @@ function jsonRes(data: unknown): Response {
   });
 }
 
+function csvRes(body: string): Response {
+  return new Response(body, { status: 200, headers: { "Content-Type": "text/csv" } });
+}
+
+/** Minimal FRED-style CSV: December CPI only, rising ~2.5 pts/year for YoY. */
+function mockFredCpiCsvFrom2004() {
+  const lines = ["observation_date,CPIAUCSL"];
+  for (let y = 2004; y <= 2027; y++) {
+    lines.push(`${y}-12-01,${(100 + (y - 2004) * 2.5).toFixed(3)}`);
+  }
+  return lines.join("\n");
+}
+
 /** Minimal v8 chart payload: monthly timestamps + closes (one bar per year for tests). */
 function yahooV8MonthlyChart(
   closes: number[],
@@ -60,10 +73,7 @@ describe("fetchMarketYearlyOverlay (mocked Yahoo v8 chart API)", () => {
     const btcCloses = years.map((_, i) => 100 + i * 10);
     const ntdyCloses = years.map((_, i) => 10 + i * 0.2);
 
-    const wbInflation = years.map((y) => ({
-      date: String(y),
-      value: 2 + (y % 7) * 0.15,
-    }));
+    const fredCsv = mockFredCpiCsvFrom2004();
 
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -76,8 +86,8 @@ describe("fetchMarketYearlyOverlay (mocked Yahoo v8 chart API)", () => {
       if (url.includes("NTDOY") && url.includes("interval=1mo")) {
         return jsonRes(yahooV8MonthlyChart(ntdyCloses, 2005));
       }
-      if (url.includes("worldbank.org") && url.includes("FP.CPI.TOTL.ZG")) {
-        return jsonRes([{}, wbInflation]);
+      if (url.includes("fred.stlouisfed.org/graph/fredgraph.csv") && url.includes("CPIAUCSL")) {
+        return csvRes(fredCsv);
       }
       return new Response("not found", { status: 404 });
     }) as typeof fetch;

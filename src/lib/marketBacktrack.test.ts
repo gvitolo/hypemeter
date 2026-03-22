@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   alignYearSeries,
+  buildCpiYoYPercentByYearFromMonthlyRows,
   fetchYahooYearlyCloses,
   normalizeTo100,
+  parseFredCpiCsvToMonthlyRows,
   parseStooqDailyHistoryToYearlyLastClose,
   seriesHasVariance,
 } from "@/lib/marketBacktrack";
@@ -70,6 +72,17 @@ describe("marketBacktrack", () => {
   it("seriesHasVariance detects flat series", () => {
     expect(seriesHasVariance([50, 50, 50])).toBe(false);
     expect(seriesHasVariance([50, 51, 50])).toBe(true);
+  });
+
+  it("FRED CPI CSV → YoY map (Dec vs prior Dec)", () => {
+    const csv = `observation_date,CPIAUCSL
+2004-12-01,100.000
+2005-12-01,103.000
+2006-12-01,106.000`;
+    const rows = parseFredCpiCsvToMonthlyRows(csv);
+    const map = buildCpiYoYPercentByYearFromMonthlyRows(rows);
+    expect(map.get(2005)).toBeCloseTo(3, 5);
+    expect(map.get(2006)).toBeCloseTo((106 / 103 - 1) * 100, 5);
   });
 
   it("parseStooqDailyHistoryToYearlyLastClose keeps last close per year", () => {
