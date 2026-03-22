@@ -5,11 +5,13 @@ type NewsItem = {
   source: string;
 };
 
-type Indicator = {
+type SignalComponent = {
   id: string;
   label: string;
+  weight: number;
   score: number;
   description: string;
+  group: "community" | "market";
 };
 
 type YearScore = {
@@ -34,32 +36,18 @@ const MARKET_QUOTES_URL =
 const STOOQ_SP500_URL = "https://stooq.com/q/l/?s=%5Espx&i=d";
 const COINGECKO_BTC_URL =
   "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd";
+const GOOGLE_TRENDS_DAILY_RSS = "https://trends.google.com/trending/rss?geo=US";
+const POKEMON_NEWS_URL = "https://www.pokemon.com/us/pokemon-news";
+const REDDIT_TCG_URL = "https://www.reddit.com/r/PokemonTCG/hot.json?limit=30";
+const REDDIT_CARDS_URL = "https://www.reddit.com/r/pokemoncards/hot.json?limit=30";
 
-const positiveKeywords = [
-  "announced",
-  "launch",
-  "record",
-  "wins",
-  "surge",
-  "new",
-  "trailer",
-  "revealed",
-  "returns",
-  "hype",
-  "goes viral",
-];
-
-const negativeKeywords = [
-  "delay",
-  "lawsuit",
-  "cancel",
-  "backlash",
-  "hack",
-  "leak",
-  "bug",
-  "outrage",
-  "scam",
-  "drop",
+const PRICECHARTING_ASSETS = [
+  "https://www.pricecharting.com/game/pokemon-base-set/charizard-4",
+  "https://www.pricecharting.com/game/pokemon-base-set/blastoise-2",
+  "https://www.pricecharting.com/game/pokemon-base-set/venusaur-15",
+  "https://www.pricecharting.com/game/pokemon-evolving-skies/umbreon-vmax-215",
+  "https://www.pricecharting.com/game/pokemon-sword-&-shield-evolving-skies/booster-box",
+  "https://www.pricecharting.com/game/pokemon-scarlet-&-violet-prismatic-evolutions/booster-box",
 ];
 
 const blockedSourceHints = [
@@ -76,22 +64,6 @@ const blockedTitleHints = [
   "near mint",
   "envío gratis",
   "buy now",
-];
-
-const trustedSourceHints = [
-  "pokemon.com",
-  "nintendo",
-  "ign",
-  "gamespot",
-  "polygon",
-  "kotaku",
-  "eurogamer",
-  "comicbook",
-  "cnn",
-  "reuters",
-  "verge",
-  "forbes",
-  "business insider",
 ];
 
 function clampScore(value: number) {
@@ -151,11 +123,6 @@ function normalize(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function sourceLooksTrusted(source: string) {
-  const normalized = normalize(source);
-  return trustedSourceHints.some((hint) => normalized.includes(hint));
-}
-
 function isLowSignalItem(item: NewsItem) {
   const source = normalize(item.source);
   const title = normalize(item.title);
@@ -182,6 +149,148 @@ function curateNewsItems(items: NewsItem[]) {
   return curated;
 }
 
+function parseApproxTraffic(raw: string) {
+  const normalized = raw.replace(/\+/g, "").trim().toUpperCase();
+  const match = normalized.match(/^([\d.]+)\s*([KMB])?$/);
+  if (!match) {
+    return 0;
+  }
+  const value = Number(match[1]);
+  if (Number.isNaN(value)) {
+    return 0;
+  }
+  const unit = match[2] ?? "";
+  const multipliers: Record<string, number> = { K: 1_000, M: 1_000_000, B: 1_000_000_000 };
+  return value * (multipliers[unit] ?? 1);
+}
+
+async function fetchSearchInterestScore() {
+  try {
+    const response = await fetch(GOOGLE_TRENDS_DAILY_RSS, { next: { revalidate: 900 } });
+    if (!response.ok) return 35;
+    const xml = await response.text();
+    const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+    const keywordRegex =
+      /(pokemon cards|pokemon tcg|pokemon center preorder|pokemon center|pokemon)/i;
+    let totalTraffic = 0;
+    let match = itemRegex.exec(xml);
+    while (match) {
+      const item = match[1];
+      const title = readTag(item, "title");
+      const trafficRaw = readTag(item, "ht:approx_traffic");
+      if (keywordRegex.test(title)) {
+        totalTraffic += parseApproxTraffic(trafficRaw);
+      }
+      match = itemRegex.exec(xml);
+    }
+    return clampScore((Math.log10(totalTraffic + 1) / 6) * 100);
+  } catch {
+    return 35;
+  }
+}
+
+async function fetchMarketMomentumScore() {
+  try {
+    const pages = await Promise.all(
+      PRICECHARTING_ASSETS.map((url) =>
+        fetch(url, { next: { revalidate: 3600 } })
+          .then((res) => (res.ok ? res.text() : ""))
+          .catch(() => ""),
+      ),
+    );
+    const changes: number[] = [];
+    for (const page of pages) {
+      const changeMatch = page.match(/([$]\d[\d,]*\.\d{2})\s*([+-][$]\d[\d,]*\.\d{2})/);
+      if (!changeMatch) continue;
+      const delta = Number(changeMatch[2].replace(/[^\d.-]/g, ""));
+      if (!Number.isNaN(delta)) {
+        changes.push(delta);
+      }
+    }
+    if (changes.length === 0) return 50;
+    const positiveRatio =
+      changes.filter((delta) => delta > 0).length / Math.max(1, changes.length);
+    const avgMagnitude = Math.min(
+      1,
+      changes.reduce((sum, delta) => sum + Math.abs(delta), 0) /
+        Math.max(1, changes.length) /
+        200,
+    );
+    const score = 35 + positiveRatio * 45 + avgMagnitude * 20;
+    return clampScore(score);
+  } catch {
+    return 50;
+  }
+}
+
+async function fetchEventCatalystScore() {
+  try {
+    const response = await fetch(POKEMON_NEWS_URL, {
+      next: { revalidate: 1800 },
+      headers: { "user-agent": "Mozilla/5.0 hypemeter" },
+    });
+    if (!response.ok) return 40;
+    const text = normalize(await response.text());
+    const catalystTerms = [
+      "reveal",
+      "expansion",
+      "release",
+      "prerelease",
+      "pokemon presents",
+      "pokemon tcg pocket",
+      "mega evolution",
+      "go fest",
+    ];
+    const hits = catalystTerms.reduce(
+      (count, term) => count + (text.includes(term) ? 1 : 0),
+      0,
+    );
+    return clampScore(hits * 14);
+  } catch {
+    return 40;
+  }
+}
+
+async function fetchCommunitySentimentScore() {
+  const extractTitles = (payload: string) => {
+    try {
+      const data = JSON.parse(payload) as {
+        data?: { children?: Array<{ data?: { title?: string } }> };
+      };
+      return (data.data?.children ?? [])
+        .map((entry) => entry.data?.title ?? "")
+        .filter(Boolean);
+    } catch {
+      return [] as string[];
+    }
+  };
+
+  try {
+    const [a, b] = await Promise.all([
+      fetch(REDDIT_TCG_URL, { next: { revalidate: 600 } })
+        .then((res) => (res.ok ? res.text() : ""))
+        .catch(() => ""),
+      fetch(REDDIT_CARDS_URL, { next: { revalidate: 600 } })
+        .then((res) => (res.ok ? res.text() : ""))
+        .catch(() => ""),
+    ]);
+    const titles = [...extractTitles(a), ...extractTitles(b)].map((t) => t.toLowerCase());
+    if (titles.length === 0) return 50;
+    const positive = ["hype", "bull", "surge", "sold out", "win", "great", "love"];
+    const negative = ["crash", "dead", "overpriced", "scam", "doom", "drop", "bad"];
+    let pos = 0;
+    let neg = 0;
+    for (const title of titles) {
+      pos += positive.filter((term) => title.includes(term)).length;
+      neg += negative.filter((term) => title.includes(term)).length;
+    }
+    const ratio = (pos + 1) / (neg + 1);
+    return clampScore(50 + (Math.log(ratio) / Math.log(2)) * 20);
+  } catch {
+    return 50;
+  }
+}
+
 function hoursAgo(dateString: string) {
   const timestamp = new Date(dateString).getTime();
   if (Number.isNaN(timestamp)) {
@@ -190,83 +299,105 @@ function hoursAgo(dateString: string) {
   return (Date.now() - timestamp) / (1000 * 60 * 60);
 }
 
-function summarizeHype(items: NewsItem[]) {
+function summarizeHype(
+  items: NewsItem[],
+  external: {
+    searchInterest: number;
+    marketMomentum: number;
+    eventCatalyst: number;
+    communitySentiment: number;
+  },
+) {
   const recent24 = items.filter((item) => hoursAgo(item.pubDate) <= 24).length;
-  const rapid6 = items.filter((item) => hoursAgo(item.pubDate) <= 6).length;
-  const rapid2 = items.filter((item) => hoursAgo(item.pubDate) <= 2).length;
-  const positiveHits = items.reduce((count, item) => {
-    const title = item.title.toLowerCase();
-    const hits = positiveKeywords.filter((keyword) => title.includes(keyword));
-    return count + hits.length;
-  }, 0);
-  const negativeHits = items.reduce((count, item) => {
-    const title = item.title.toLowerCase();
-    const hits = negativeKeywords.filter((keyword) => title.includes(keyword));
-    return count + hits.length;
-  }, 0);
-  const trustedSources = new Set(
-    items.filter((item) => sourceLooksTrusted(item.source)).map((item) => item.source),
+  const titleBlob = items.map((item) => normalize(item.title)).join(" | ");
+  const selloutHits = [
+    "sold out",
+    "out of stock",
+    "preorder",
+    "allocation",
+    "scarcity",
+    "queue",
+    "purchase limit",
+  ].reduce((count, key) => count + (titleBlob.includes(key) ? 1 : 0), 0);
+  const stressHits = ["reprint", "delayed", "shipping delay", "limit", "queue"].reduce(
+    (count, key) => count + (titleBlob.includes(key) ? 1 : 0),
+    0,
   );
 
-  const indicators: Indicator[] = [
+  const components: SignalComponent[] = [
     {
-      id: "momentum",
-      label: "News Momentum",
-      score: clampScore((recent24 / 18) * 100),
-      description: "How many fresh Pokemon stories dropped in 24h.",
+      id: "search_interest",
+      label: "Search Interest",
+      weight: 0.2,
+      score: external.searchInterest,
+      description: "Google Trends proxy for retail/fan demand.",
+      group: "community",
     },
     {
-      id: "velocity",
-      label: "Viral Velocity",
-      score: clampScore((rapid6 / 10) * 100),
-      description: "Spike of stories in the latest 6 hours.",
+      id: "market_momentum",
+      label: "Market Momentum",
+      weight: 0.25,
+      score: external.marketMomentum,
+      description: "PriceCharting momentum proxy on cards/sealed assets.",
+      group: "market",
     },
     {
-      id: "flash",
-      label: "Flash Surge",
-      score: clampScore((rapid2 / 6) * 100),
-      description: "Ultra-fresh news burst in the latest 2 hours.",
+      id: "availability_pressure",
+      label: "Availability Pressure",
+      weight: 0.2,
+      score: clampScore((selloutHits / 5) * 100 + (recent24 / 40) * 25),
+      description: "Sellout and preorder tightness signal.",
+      group: "market",
     },
     {
-      id: "positive",
-      label: "W Signal",
-      score: clampScore((positiveHits / 14) * 100),
-      description: "Positive keywords in headlines (launches, reveals, wins).",
+      id: "release_catalyst",
+      label: "Release/Event Catalyst",
+      weight: 0.15,
+      score: external.eventCatalyst,
+      description: "Boost from reveals, releases, Presents, major updates.",
+      group: "community",
     },
     {
-      id: "stability",
-      label: "Drama Shield",
-      score: clampScore(100 - (negativeHits / 10) * 100),
-      description: "Fewer negative headlines means more stable hype.",
+      id: "community_sentiment",
+      label: "Community Sentiment",
+      weight: 0.1,
+      score: external.communitySentiment,
+      description: "Reddit sentiment ratio, weak-signal by design.",
+      group: "community",
     },
     {
-      id: "diversity",
-      label: "Source Quality",
-      score: clampScore((trustedSources.size / 10) * 100),
-      description: "Coverage depth across trusted outlets.",
-    },
-    {
-      id: "depth",
-      label: "Feed Depth",
-      score: clampScore((items.length / 28) * 100),
-      description: "Total number of Pokémon stories in the live feed.",
+      id: "product_stress",
+      label: "Product Stress / Queue",
+      weight: 0.1,
+      score: clampScore((stressHits / 5) * 100),
+      description: "Queue/reprint/restriction pressure in live coverage.",
+      group: "market",
     },
   ];
 
   const score = clampScore(
-    indicators.reduce((sum, indicator) => sum + indicator.score, 0) /
-      indicators.length,
+    components.reduce((sum, component) => sum + component.score * component.weight, 0),
   );
-  return { score, indicators };
+  const communityScore = clampScore(
+    components
+      .filter((component) => component.group === "community")
+      .reduce((sum, component) => sum + component.score, 0) / 3,
+  );
+  const marketScore = clampScore(
+    components
+      .filter((component) => component.group === "market")
+      .reduce((sum, component) => sum + component.score, 0) / 3,
+  );
+  return { score, indicators: components, communityScore, marketScore };
 }
 
 function labelForScore(score: number) {
-  if (score >= 85) return { label: "MEGA HYPE", vibe: "Absolute chaos mode." };
-  if (score >= 70) return { label: "PEAKING", vibe: "Pokemon is cooking hard." };
-  if (score >= 55) return { label: "HOT", vibe: "Momentum is very real." };
-  if (score >= 40) return { label: "WARM", vibe: "Buzz is steady, not wild." };
-  if (score >= 25) return { label: "CHILL", vibe: "Calm cycle, waiting for reveals." };
-  return { label: "SLEEP MODE", vibe: "Need a trailer drop ASAP." };
+  if (score >= 90) return { label: "MANIA", vibe: "Demand pressure is extreme." };
+  if (score >= 75) return { label: "FRENZY", vibe: "Strong acceleration across signals." };
+  if (score >= 60) return { label: "HYPE", vibe: "Momentum is clearly above baseline." };
+  if (score >= 45) return { label: "WARM", vibe: "Constructive but selective strength." };
+  if (score >= 25) return { label: "CALM", vibe: "Balanced cycle, no major squeeze." };
+  return { label: "DEAD", vibe: "Low attention and low market pressure." };
 }
 
 function meterColor(score: number) {
@@ -428,6 +559,10 @@ async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
 
 export default async function Home() {
   let items: NewsItem[] = [];
+  let searchInterest = 35;
+  let marketMomentum = 50;
+  let eventCatalyst = 40;
+  let communitySentiment = 50;
   try {
     const response = await fetch(NEWS_URL, {
       next: { revalidate },
@@ -443,7 +578,19 @@ export default async function Home() {
     items = [];
   }
 
-  const { score, indicators } = summarizeHype(items);
+  [searchInterest, marketMomentum, eventCatalyst, communitySentiment] = await Promise.all([
+    fetchSearchInterestScore(),
+    fetchMarketMomentumScore(),
+    fetchEventCatalystScore(),
+    fetchCommunitySentimentScore(),
+  ]);
+
+  const { score, indicators, communityScore, marketScore } = summarizeHype(items, {
+    searchInterest,
+    marketMomentum,
+    eventCatalyst,
+    communitySentiment,
+  });
   const market = await fetchMarketSnapshot();
   const mood = labelForScore(score);
   const history = buildBacktrackSeries(score);
@@ -508,6 +655,24 @@ export default async function Home() {
                 style={{ width: `${score}%` }}
               />
             </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-white/10 bg-slate-800 p-3">
+                <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
+                  Pokemon Community Hype
+                </p>
+                <p className="mt-1 text-2xl font-bold text-cyan-300">
+                  {communityScore}/100
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-slate-800 p-3">
+                <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
+                  Pokemon TCG Market Heat
+                </p>
+                <p className="mt-1 text-2xl font-bold text-fuchsia-300">
+                  {marketScore}/100
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-slate-900 p-6">
@@ -515,8 +680,9 @@ export default async function Home() {
               How this meter works
             </h3>
             <p className="mt-3 text-sm text-slate-400">
-              Similar to Fear & Greed, this score blends seven equally weighted
-              indicators from a live Pokemon news feed.
+              Composite index with 6 weighted components: Search Interest (20%),
+              Market Momentum (25%), Availability Pressure (20%), Event Catalyst
+              (15%), Community Sentiment (10%), Product Stress (10%).
             </p>
             <a
               className="mt-4 inline-block text-sm font-semibold text-cyan-300 hover:text-cyan-200"
@@ -626,7 +792,7 @@ export default async function Home() {
 
         <section className="rounded-3xl border border-white/10 bg-slate-900 p-6">
           <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
-            7 Hype Signals
+            6 Composite Components
           </h3>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {indicators.map((indicator) => (
@@ -637,6 +803,11 @@ export default async function Home() {
                 <p className="text-xs uppercase tracking-[0.14em] text-slate-400">
                   {indicator.label}
                 </p>
+                {"weight" in indicator ? (
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    Weight: {Math.round(indicator.weight * 100)}%
+                  </p>
+                ) : null}
                 <p className="mt-1 text-2xl font-bold text-white">
                   {indicator.score}
                 </p>
