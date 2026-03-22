@@ -1419,57 +1419,8 @@ async function fetchPokemonNameCatalog() {
   }
 }
 
-function findPokemonNameMatchInText(articleText: string, names: string[]) {
-  const text = normalizePokemonToken(articleText);
-  if (!text) return null;
-
-  let winner: { name: string; index: number; len: number } | null = null;
-  for (const name of names) {
-    const normalizedName = normalizePokemonToken(name.replace(/-/g, " "));
-    if (!normalizedName) continue;
-    const regex = new RegExp(`(^|\\s)${escapeRegex(normalizedName)}(?=\\s|$)`);
-    const match = text.match(regex);
-    if (!match || match.index === undefined) continue;
-    const index = match.index;
-    const len = normalizedName.length;
-    if (!winner || index < winner.index || (index === winner.index && len > winner.len)) {
-      winner = { name, index, len };
-    }
-  }
-  return winner?.name ?? null;
-}
-
-async function fetchArticleTextForPokemonMatching(url: string) {
-  try {
-    const normalizedUrl = normalize(url);
-    const absUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-    const fetchUrl = normalizedUrl.includes("pokemon.com")
-      ? `https://r.jina.ai/${absUrl}`
-      : absUrl;
-    const res = await fetch(fetchUrl, {
-      next: { revalidate: 1800 },
-      headers: { "user-agent": "Mozilla/5.0 hypemeter" },
-    });
-    if (!res.ok) return "";
-    const html = await res.text();
-    if (!html) return "";
-    const sanitized = html
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ");
-    const plain = decodeHtml(sanitized).replace(/\s+/g, " ").trim();
-    return plain.slice(0, 18000);
-  } catch {
-    return "";
-  }
-}
-
-// Use only the start of the article body for name matching — footers/sidebars often mention unrelated Pokémon.
-function primaryArticleChunkForPokemon(fullPlain: string, maxLen = 5200) {
-  const slice = fullPlain.slice(0, maxLen);
-  const idx = slice.search(/\b(pokemon|pokémon)\b/i);
-  if (idx > 120) return slice.slice(idx, idx + maxLen);
-  return slice;
-}
+/** Minimum weighted score to count a name as a real mention (title+summary only). */
+const FEED_POKEMON_MENTION_FLOOR = 3;
 
 function rankPokemonMatchesFromSources(
   sources: Array<{ text: string; weight: number }>,
@@ -1592,85 +1543,99 @@ function hashStringToRange(input: string, min: number, max: number) {
   return min + (Math.abs(hash) % span);
 }
 
-function buildPokemonCandidateNamesFromTitle(title: string) {
-  const text = normalize(title);
-  const baseTokens = text
-    .replace(/[^a-z0-9\s-]/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-  const stop = new Set([
-    "pokemon",
-    "pokémon",
-    "the",
-    "for",
-    "and",
-    "with",
-    "from",
-    "this",
-    "that",
-    "your",
-    "game",
-    "games",
-    "new",
-    "best",
-    "guide",
-    "today",
-    "first",
-    "host",
-    "what",
-    "why",
-    "how",
-    "play",
-  ]);
-  const candidates = new Set<string>();
-  for (const token of baseTokens) {
-    if (token.length < 3 || stop.has(token)) continue;
-    candidates.add(token);
+/**
+ * Pick the Pokémon name (PokeAPI slug) that is strongest across the whole RSS set:
+ * prioritize how many distinct headlines mention it, then total weighted score.
+ * Uses title + summary only (no article HTML) so sidebar/footer noise can't pick Sealeo, etc.
+ */
+function computeFeedWidePokemonWinner(items: NewsItem[], catalog: string[]): string | null {
+  if (items.length === 0 || catalog.length === 0) return null;
+  const articleCount = new Map<string, number>();
+  const weightedTotal = new Map<string, number>();
+
+  for (const item of items) {
+    const ranked = rankPokemonMatchesFromSources(
+      [
+        { text: item.title, weight: 3 },
+        { text: item.summary, weight: 2 },
+      ],
+      catalog,
+    );
+    const seenInArticle = new Set<string>();
+    for (const entry of ranked) {
+      if (entry.score < FEED_POKEMON_MENTION_FLOOR) continue;
+      weightedTotal.set(entry.name, (weightedTotal.get(entry.name) ?? 0) + entry.score);
+      if (!seenInArticle.has(entry.name)) {
+        seenInArticle.add(entry.name);
+        articleCount.set(entry.name, (articleCount.get(entry.name) ?? 0) + 1);
+      }
+    }
   }
-  if (text.includes("mr mime")) candidates.add("mr-mime");
-  if (text.includes("mime jr")) candidates.add("mime-jr");
-  if (text.includes("type null")) candidates.add("type-null");
-  if (text.includes("jangmo o")) candidates.add("jangmo-o");
-  return Array.from(candidates).slice(0, 12);
+
+  const names = [...articleCount.keys()];
+  if (names.length === 0) return null;
+  names.sort((a, b) => {
+    const ca = articleCount.get(a) ?? 0;
+    const cb = articleCount.get(b) ?? 0;
+    if (cb !== ca) return cb - ca;
+    return (weightedTotal.get(b) ?? 0) - (weightedTotal.get(a) ?? 0);
+  });
+  return names[0] ?? null;
 }
 
-async function pickPokemonOfDayFromArticle(article: PokemonOfDayArticle | null, pokemonCatalog: string[]) {
-  if (!article) return null;
-
-  const feedText = normalize(`${article.title} ${article.summary}`);
-  for (const mention of article.pokemonMentions) {
-    const token = normalize(mention.replace(/-/g, " "));
-    if (token.length < 3 || !feedText.includes(token)) continue;
-    const matched = await fetchPokemonByIdentifier(mention);
-    if (matched) return matched;
-  }
-
-  const articlePageText = await fetchArticleTextForPokemonMatching(article.link);
-  const bodyChunk = primaryArticleChunkForPokemon(articlePageText);
-  const articleText = `${article.title} ${article.summary} ${bodyChunk}`;
-  const rankedMatches = rankPokemonMatchesFromSources(
-    [
-      { text: article.title, weight: 6 },
-      { text: article.summary, weight: 5 },
-      { text: bodyChunk, weight: 1.1 },
-    ],
-    pokemonCatalog,
+function articleMentionsPokemonSlug(item: NewsItem, slug: string, catalog: string[]): boolean {
+  const ranked = rankPokemonMatchesFromSources(
+    [{ text: item.title, weight: 3 }, { text: item.summary, weight: 2 }],
+    catalog,
   );
-  const exactMatch = rankedMatches[0]?.name ?? findPokemonNameMatchInText(articleText, pokemonCatalog);
-  if (exactMatch) {
-    const matched = await fetchPokemonByIdentifier(exactMatch);
-    if (matched) return matched;
-  }
+  const hit = ranked.find((e) => e.name === slug);
+  return hit !== undefined && hit.score >= FEED_POKEMON_MENTION_FLOOR;
+}
 
-  const candidates = buildPokemonCandidateNamesFromTitle(`${article.title} ${article.summary}`);
-  for (const candidate of candidates) {
-    const pokemon = await fetchPokemonByIdentifier(candidate);
-    if (pokemon) return pokemon;
-  }
+function pickSpotlightArticleForPokemon(
+  items: NewsItem[],
+  winnerSlug: string,
+  catalog: string[],
+): PokemonOfDayArticle | null {
+  const ranked = items
+    .map((item) => ({
+      item,
+      rel: scoreArticleRelevance(item),
+      hit: articleMentionsPokemonSlug(item, winnerSlug, catalog),
+    }))
+    .filter((row) => row.hit)
+    .sort((a, b) => b.rel - a.rel);
+  const best = ranked[0]?.item;
+  if (!best) return null;
+  return {
+    title: best.title,
+    link: best.link,
+    source: best.source,
+    summary: best.summary,
+    pokemonMentions: extractPokemonMentionsFromText(
+      [{ text: best.title, weight: 2.5 }, { text: best.summary, weight: 1.6 }],
+      catalog,
+      6,
+    ),
+  };
+}
 
-  // Guaranteed fallback still tied to the article itself.
-  const fallbackId = hashStringToRange(`${article.title}|${article.link}`, 1, 1025);
-  return fetchPokemonByIdentifier(fallbackId);
+async function resolvePokemonOfDay(
+  items: NewsItem[],
+  catalog: string[],
+): Promise<{ pokemon: PokemonOfDay | null; winnerSlug: string | null }> {
+  const winnerSlug = computeFeedWidePokemonWinner(items, catalog);
+  if (winnerSlug) {
+    const pokemon = await fetchPokemonByIdentifier(winnerSlug);
+    if (pokemon) return { pokemon, winnerSlug };
+  }
+  const fallbackId = hashStringToRange(
+    items.map((i) => `${i.title}|${i.pubDate}`).join("||"),
+    1,
+    1025,
+  );
+  const pokemon = await fetchPokemonByIdentifier(fallbackId);
+  return { pokemon, winnerSlug: null };
 }
 
 // Build the initial calendar payload for "today" so it renders immediately on first load.
@@ -1962,8 +1927,15 @@ export default async function Home() {
     };
   });
   const pokemonCatalog = await fetchPokemonNameCatalog();
-  const pokemonOfDayArticle = pickArticleOfDay(items, pokemonCatalog);
-  const pokemonOfDay = await pickPokemonOfDayFromArticle(pokemonOfDayArticle, pokemonCatalog);
+  const { pokemon: pokemonOfDay, winnerSlug: pokemonOfDayWinnerSlug } = await resolvePokemonOfDay(
+    items,
+    pokemonCatalog,
+  );
+  const pokemonOfDayArticle =
+    pokemonOfDayWinnerSlug && items.length > 0
+      ? (pickSpotlightArticleForPokemon(items, pokemonOfDayWinnerSlug, pokemonCatalog) ??
+        pickArticleOfDay(items, pokemonCatalog))
+      : pickArticleOfDay(items, pokemonCatalog);
   const traderNarrative = buildTraderNarrative({
     score,
     signalQuality: liveSignalQuality,
