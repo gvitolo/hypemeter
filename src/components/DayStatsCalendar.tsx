@@ -11,6 +11,7 @@ type DayStatsResponse = {
     pressureHits: number;
     sentiment: number;
     dayScore: number;
+    signalQuality?: number;
     eventSignals?: Array<{
       label: string;
       group: string;
@@ -114,16 +115,7 @@ export default function DayStatsCalendar({ initialData, initialDate }: Props) {
   const canPrev = visibleMonth > new Date(minDate.getFullYear(), minDate.getMonth(), 1);
   const canNext = visibleMonth < new Date(now.getFullYear(), now.getMonth(), 1);
   const signalQuality = data
-    ? Math.max(
-        0,
-        Math.min(
-          100,
-          Math.round(
-            (Math.log10(data.stats.headlineCount + 1) / Math.log10(26)) * 70 +
-              (Math.min(data.stats.uniqueSources, 10) / 10) * 30,
-          ),
-        ),
-      )
+    ? (typeof data.stats.signalQuality === "number" ? data.stats.signalQuality : null)
     : null;
   const catalystIntensity = data
     ? Math.max(

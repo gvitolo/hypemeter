@@ -49,6 +49,7 @@ type CalendarDayStats = {
     pressureHits: number;
     sentiment: number;
     dayScore: number;
+    signalQuality?: number;
     eventSignals?: Array<{
       label: string;
       group: string;
@@ -264,6 +265,26 @@ function extractLiveEventSignals(items: NewsItem[], limit = 12) {
   return Array.from(deduped.values())
     .sort((a, b) => b.weight - a.weight)
     .slice(0, limit);
+}
+
+function computeLiveSignalQuality(items: NewsItem[], eventSignalCount: number) {
+  if (items.length === 0) return 0;
+  const sourceCounts = new Map<string, number>();
+  for (const item of items) {
+    const key = normalize(item.source || "Unknown");
+    sourceCounts.set(key, (sourceCounts.get(key) ?? 0) + 1);
+  }
+  const headlineCount = items.length;
+  const uniqueSources = sourceCounts.size;
+  const maxSourceShare = Math.max(...Array.from(sourceCounts.values())) / headlineCount;
+  const unknownShare = (sourceCounts.get("unknown") ?? 0) / headlineCount;
+
+  const coverage = Math.max(0, Math.min(1, Math.log10(headlineCount + 1) / Math.log10(36)));
+  const sourceSpread = Math.max(0, Math.min(1, (uniqueSources - 1) / 10));
+  const eventDensity = Math.max(0, Math.min(1, eventSignalCount / 10));
+  const raw = coverage * 0.35 + sourceSpread * 0.4 + eventDensity * 0.25;
+  const penalty = Math.max(0, maxSourceShare - 0.5) * 0.65 + unknownShare * 0.8;
+  return clampScore((raw - penalty) * 100);
 }
 
 // Filter out low-signal commerce spam and noisy listing-style headlines.
@@ -1003,6 +1024,7 @@ function buildTodayCalendarStats(items: NewsItem[], liveHypeScore: number): Cale
   );
 
   const eventSignals = extractLiveEventSignals(items, 8);
+  const signalQuality = computeLiveSignalQuality(items, eventSignals.length);
 
   return {
     date: today,
@@ -1014,6 +1036,7 @@ function buildTodayCalendarStats(items: NewsItem[], liveHypeScore: number): Cale
       sentiment,
       // Explicitly aligned with the homepage live hype score for today's preloaded card.
       dayScore: liveHypeScore,
+      signalQuality,
       eventSignals,
     },
     headlines: items.slice(0, 8),
@@ -1177,6 +1200,7 @@ export default async function Home() {
   const history = buildBacktrackSeries(score);
   const todayCalendarStats = buildTodayCalendarStats(items.slice(0, 20), score);
   const liveEventSignals = extractLiveEventSignals(items);
+  const liveSignalQuality = computeLiveSignalQuality(items, liveEventSignals.length);
   const pokemonOfDay = await fetchPokemonOfDay();
   const pokemonOfDayArticle = await pickPokemonOfDayArticle(items, pokemonOfDay);
 
@@ -1372,6 +1396,17 @@ export default async function Home() {
                 <p className="mt-1 text-2xl font-bold text-fuchsia-300">
                   {marketScore}/100
                 </p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-slate-800 p-3 hover-lift sm:col-span-2">
+                <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
+                  Signal Quality
+                </p>
+                <div className="mt-1 flex items-center justify-between">
+                  <p className="text-2xl font-bold text-cyan-200">{liveSignalQuality}/100</p>
+                  <p className="text-xs text-slate-400">
+                    based on source diversity, coverage, and signal density
+                  </p>
+                </div>
               </div>
             </div>
           </div>

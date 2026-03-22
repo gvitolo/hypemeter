@@ -106,6 +106,28 @@ function weightedTokenHitsAcrossItems(items: NewsItem[], tokens: WeightedSignal[
   );
 }
 
+function computeSignalQuality(args: {
+  headlineCount: number;
+  uniqueSources: number;
+  maxSourceShare: number;
+  unknownShare: number;
+  eventHits: number;
+  pressureHits: number;
+}) {
+  const { headlineCount, uniqueSources, maxSourceShare, unknownShare, eventHits, pressureHits } = args;
+  if (headlineCount <= 0) return 0;
+
+  const coverage = clamp(Math.log10(headlineCount + 1) / Math.log10(26), 0, 1);
+  const sourceSpread = clamp((uniqueSources - 1) / 7, 0, 1);
+  const eventDensity = clamp((eventHits + pressureHits) / Math.max(8, headlineCount * 1.35), 0, 1);
+  const concentrationPenalty = Math.max(0, maxSourceShare - 0.5) * 0.75;
+  const unknownPenalty = unknownShare * 0.9;
+
+  const raw =
+    coverage * 0.35 + sourceSpread * 0.35 + eventDensity * 0.2 + clamp(uniqueSources / 12, 0, 1) * 0.1;
+  return clamp(Math.round((raw - concentrationPenalty - unknownPenalty) * 100), 0, 100);
+}
+
 function collectSignals(
   text: string,
   groups: Array<{ group: string; tokens: WeightedSignal[] }>,
@@ -161,6 +183,15 @@ function computeStats(items: NewsItem[]) {
   const uniqueSources = sourceCounts.size;
   const maxSourceShare =
     headlineCount > 0 ? Math.max(...Array.from(sourceCounts.values())) / headlineCount : 1;
+  const unknownShare = headlineCount > 0 ? (sourceCounts.get("unknown") ?? 0) / headlineCount : 1;
+  const signalQuality = computeSignalQuality({
+    headlineCount,
+    uniqueSources,
+    maxSourceShare,
+    unknownShare,
+    eventHits,
+    pressureHits,
+  });
   const attentionScore = clamp(
     (Math.log10(headlineCount + 1) / Math.log10(26)) * 72 + (uniqueSources / 12) * 28,
     0,
@@ -192,11 +223,10 @@ function computeStats(items: NewsItem[]) {
     (hasMajorGameReveal ? 12 : 0) +
     Math.max(0, eventCatalystScore - 65) * 0.35;
   const sourcePenalty = uniqueSources <= 1 ? 10 : uniqueSources <= 2 ? 6 : 0;
-  const coverageConfidence = clamp(
-    (headlineCount / 20) * 0.6 + (uniqueSources / 10) * 0.4 - Math.max(0, maxSourceShare - 0.55) * 0.35,
-    0.18,
-    1,
-  );
+  const coverageConfidence = clamp(0.12 + (signalQuality / 100) * 0.88, 0.12, 1);
+  const randomDayPenalty =
+    !hasFlagshipBroadcast && eventCatalystScore < 45 ? 10 + (45 - eventCatalystScore) * 0.28 : 0;
+  const noPressurePenalty = pressureHits < 1 && eventHits < 4 ? 6 : 0;
   const eventSignals = collectSignals(text, [
     { group: "event", tokens: EVENT_TOKENS },
     { group: "pressure", tokens: PRESSURE_TOKENS },
@@ -218,7 +248,11 @@ function computeStats(items: NewsItem[]) {
     100,
   );
   const adjustedScore =
-    baseScore * coverageConfidence + catalystShock * (0.45 + coverageConfidence * 0.55) - sourcePenalty;
+    baseScore * coverageConfidence +
+    catalystShock * (0.45 + coverageConfidence * 0.55) -
+    sourcePenalty -
+    randomDayPenalty -
+    noPressurePenalty;
   const dayScore = clamp(Math.round(adjustedScore), 0, 100);
   const sentiment = Math.round(communitySentimentScore);
 
@@ -229,6 +263,7 @@ function computeStats(items: NewsItem[]) {
     pressureHits: Math.round(pressureHits),
     sentiment,
     dayScore,
+    signalQuality,
     eventSignals,
   };
 }
