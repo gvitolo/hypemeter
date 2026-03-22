@@ -40,8 +40,8 @@ export default function BacktrackMarketSection({ history, events, marketOverlay,
           First year: {history[0]?.year} • Latest: {history[history.length - 1]?.year}
         </p>
       </div>
-      <div className="mt-4 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,0.7fr)]">
-        <div className="min-w-0">
+      <div className="mt-4 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,0.7fr)]">
+        <div className="min-w-0 self-start">
           <HypeBacktrackingChart
             history={history}
             events={events}

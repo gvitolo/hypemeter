@@ -95,7 +95,7 @@ export default function HypeBacktrackingChart({
   const activeEvents = active ? events.filter((event) => event.year === active.year) : [];
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-3">
+    <div className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 px-3 pt-3 pb-2">
       <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="flex min-h-[4.75rem] flex-col justify-center rounded-lg border border-white/10 bg-slate-900 p-2">
           <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">selected</p>
@@ -259,39 +259,37 @@ export default function HypeBacktrackingChart({
         ) : null}
       </svg>
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
         <span>{history[0]?.year}</span>
         <span>{history[Math.floor(history.length / 4)]?.year}</span>
         <span>{history[Math.floor(history.length / 2)]?.year}</span>
         <span>{history[Math.floor((history.length * 3) / 4)]?.year}</span>
         <span>{history[history.length - 1]?.year}</span>
       </div>
-      <p className="mt-2 text-[11px] text-slate-500">
+      <p className="mt-1 text-[11px] leading-snug text-slate-500">
         Hover across the chart to inspect each year.
         {marketLines && marketLines.length > 0 ? (
-          <span className="mt-1 block text-slate-600">
-            Thin tracks:{" "}
-            <span className="text-emerald-400/90">S&amp;P 500</span> ·{" "}
-            <span className="text-amber-300/90">Bitcoin</span> ·{" "}
-            <span className="text-rose-300/90">Nintendo</span> (normalized 0–100 vs each asset&apos;s
-            range).
+          <span className="text-slate-600">
+            {" "}
+            · Thin:{" "}
+            <span className="text-emerald-400/90">S&amp;P</span> /{" "}
+            <span className="text-amber-300/90">BTC</span> /{" "}
+            <span className="text-rose-300/90">NTDOY</span> (norm. 0–100)
           </span>
         ) : null}
       </p>
-      <div className="mt-2 min-h-[24px]">
-        {activeEvents.length > 0 ? (
-          <div className="flex gap-1.5 overflow-x-auto whitespace-nowrap pb-1">
-            {activeEvents.map((event) => (
-              <span
-                key={`${event.year}-${event.label}`}
-                className="rounded-full border border-fuchsia-400/35 bg-fuchsia-500/10 px-2 py-0.5 text-[11px] text-fuchsia-200"
-              >
-                {event.label}
-              </span>
-            ))}
-          </div>
-        ) : null}
-      </div>
+      {activeEvents.length > 0 ? (
+        <div className="mt-1.5 flex gap-1.5 overflow-x-auto whitespace-nowrap pb-0.5">
+          {activeEvents.map((event) => (
+            <span
+              key={`${event.year}-${event.label}`}
+              className="rounded-full border border-fuchsia-400/35 bg-fuchsia-500/10 px-2 py-0.5 text-[11px] text-fuchsia-200"
+            >
+              {event.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
