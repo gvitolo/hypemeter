@@ -857,26 +857,6 @@ function titleCase(value: string) {
     .join(" ");
 }
 
-function dayOfYearUtc(date: Date) {
-  const start = Date.UTC(date.getUTCFullYear(), 0, 0);
-  const current = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-  return Math.floor((current - start) / (1000 * 60 * 60 * 24));
-}
-
-function toIsoDateUtc(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function addUtcDays(date: Date, amount: number) {
-  const copy = new Date(date);
-  copy.setUTCDate(copy.getUTCDate() + amount);
-  return copy;
-}
-
-function escapeRegex(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function sourceQuality(source: string) {
   const normalized = normalize(source);
   const premium = [
@@ -897,28 +877,8 @@ function sourceQuality(source: string) {
   return 0;
 }
 
-function scoreSpotlightCandidate(item: NewsItem, nameRegex: RegExp, nameToken: string) {
-  const title = normalize(item.title);
-  if (!nameRegex.test(title) || !/(pokemon|pokémon)/i.test(title)) {
-    return Number.NEGATIVE_INFINITY;
-  }
-
-  let score = 10;
-  score += sourceQuality(item.source) * 3;
-  if (/(guide|explained|history|lore|spotlight|profile|best moves|build)/i.test(item.title)) score += 4;
-  if (/(direct|presents|reveal|announcement|new game|launch|release)/i.test(item.title)) score += 3;
-  if (title.includes(nameToken)) score += 2;
-  score += Math.max(0, 6 - hoursAgo(item.pubDate) / 6);
-  return score;
-}
-
-// Deterministic daily Pokemon pick (changes once per UTC day).
-async function fetchPokemonOfDay(): Promise<PokemonOfDay | null> {
-  const maxDex = 1025;
-  const today = new Date();
-  const pickId = ((dayOfYearUtc(today) - 1) % maxDex) + 1;
-  const url = `https://pokeapi.co/api/v2/pokemon/${pickId}`;
-
+async function fetchPokemonByIdentifier(identifier: string | number): Promise<PokemonOfDay | null> {
+  const url = `https://pokeapi.co/api/v2/pokemon/${identifier}`;
   try {
     const res = await fetch(url, { next: { revalidate: 86400 } });
     if (!res.ok) return null;
@@ -949,52 +909,95 @@ async function fetchPokemonOfDay(): Promise<PokemonOfDay | null> {
   }
 }
 
-async function pickPokemonOfDayArticle(
-  items: NewsItem[],
-  pokemon: PokemonOfDay | null,
-): Promise<PokemonOfDayArticle | null> {
-  if (!pokemon) return null;
-  const nameToken = normalize(pokemon.name);
-  const nameRegex = new RegExp(`\\b${escapeRegex(nameToken).replace(/\s+/g, "\\s+")}\\b`, "i");
-
-  const rank = (list: NewsItem[]) =>
-    list
-      .map((item) => ({ item, score: scoreSpotlightCandidate(item, nameRegex, nameToken) }))
-      .filter((entry) => Number.isFinite(entry.score))
-      .sort((a, b) => b.score - a.score);
-
-  const localBest = rank(items)[0]?.item;
-  if (localBest) {
-    return { title: localBest.title, link: localBest.link, source: localBest.source };
-  }
-
-  const today = new Date();
-  const tomorrow = addUtcDays(today, 1);
-  const sevenDaysAgo = addUtcDays(today, -7);
-  const queryBase = `("Pokemon" OR "Pokémon") "${pokemon.name}" (guide OR explained OR spotlight OR lore OR history OR game OR card)`;
-  const windows = [
-    `after:${toIsoDateUtc(today)} before:${toIsoDateUtc(tomorrow)}`,
-    `after:${toIsoDateUtc(sevenDaysAgo)} before:${toIsoDateUtc(tomorrow)}`,
-  ];
-
-  for (const window of windows) {
-    const query = encodeURIComponent(`${queryBase} ${window}`);
-    const url = `https://news.google.com/rss/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
-    try {
-      const res = await fetch(url, { next: { revalidate: 3600 } });
-      if (!res.ok) continue;
-      const xml = await res.text();
-      const fetched = curateNewsItems(parseNews(xml));
-      const best = rank(fetched)[0]?.item;
-      if (best) {
-        return { title: best.title, link: best.link, source: best.source };
+function pickArticleOfDay(items: NewsItem[]): PokemonOfDayArticle | null {
+  if (items.length === 0) return null;
+  const ranked = items
+    .map((item) => {
+      const title = normalize(item.title);
+      let score = 0;
+      score += sourceQuality(item.source) * 4;
+      if (/(pokemon|pokémon)/i.test(item.title)) score += 3;
+      if (/(direct|presents|reveal|announcement|launch|release|expansion|worlds|championship)/i.test(item.title)) {
+        score += 4;
       }
-    } catch {
-      // Try next window.
-    }
+      if (/(guide|beginner|best game|opinion|reddit|thread|question)/i.test(item.title)) {
+        score -= 4;
+      }
+      score += Math.max(0, 10 - hoursAgo(item.pubDate) / 4);
+      if (title.includes("pokémon") || title.includes("pokemon")) score += 1;
+      return { item, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const best = ranked[0]?.item;
+  if (!best) return null;
+  return { title: best.title, link: best.link, source: best.source };
+}
+
+function hashStringToRange(input: string, min: number, max: number) {
+  let hash = 0;
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash << 5) - hash + input.charCodeAt(i);
+    hash |= 0;
+  }
+  const span = max - min + 1;
+  return min + (Math.abs(hash) % span);
+}
+
+function buildPokemonCandidateNamesFromTitle(title: string) {
+  const text = normalize(title);
+  const baseTokens = text
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  const stop = new Set([
+    "pokemon",
+    "pokémon",
+    "the",
+    "for",
+    "and",
+    "with",
+    "from",
+    "this",
+    "that",
+    "your",
+    "game",
+    "games",
+    "new",
+    "best",
+    "guide",
+    "today",
+    "first",
+    "host",
+    "what",
+    "why",
+    "how",
+    "play",
+  ]);
+  const candidates = new Set<string>();
+  for (const token of baseTokens) {
+    if (token.length < 3 || stop.has(token)) continue;
+    candidates.add(token);
+  }
+  if (text.includes("mr mime")) candidates.add("mr-mime");
+  if (text.includes("mime jr")) candidates.add("mime-jr");
+  if (text.includes("type null")) candidates.add("type-null");
+  if (text.includes("jangmo o")) candidates.add("jangmo-o");
+  return Array.from(candidates).slice(0, 12);
+}
+
+async function pickPokemonOfDayFromArticle(article: PokemonOfDayArticle | null) {
+  if (!article) return null;
+
+  const candidates = buildPokemonCandidateNamesFromTitle(article.title);
+  for (const candidate of candidates) {
+    const pokemon = await fetchPokemonByIdentifier(candidate);
+    if (pokemon) return pokemon;
   }
 
-  return null;
+  // Guaranteed fallback still tied to the article itself.
+  const fallbackId = hashStringToRange(article.title, 1, 1025);
+  return fetchPokemonByIdentifier(fallbackId);
 }
 
 // Build the initial calendar payload for "today" so it renders immediately on first load.
@@ -1201,8 +1204,8 @@ export default async function Home() {
   const todayCalendarStats = buildTodayCalendarStats(items.slice(0, 20), score);
   const liveEventSignals = extractLiveEventSignals(items);
   const liveSignalQuality = computeLiveSignalQuality(items, liveEventSignals.length);
-  const pokemonOfDay = await fetchPokemonOfDay();
-  const pokemonOfDayArticle = await pickPokemonOfDayArticle(items, pokemonOfDay);
+  const pokemonOfDayArticle = pickArticleOfDay(items);
+  const pokemonOfDay = await pickPokemonOfDayFromArticle(pokemonOfDayArticle);
 
   // Single timestamp used as visible "last refreshed" marker in header.
   const updatedAt = new Date().toLocaleString("en-US", {
