@@ -2091,9 +2091,6 @@ export default async function Home() {
           </div>
 
           <div className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 p-6 hover-lift">
-            <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
-              How this meter works
-            </h3>
             <div className="mt-4 grid gap-3 lg:grid-cols-3">
               {sentiments.map((sentiment) => (
                 <div
