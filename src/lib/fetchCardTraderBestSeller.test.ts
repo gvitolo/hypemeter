@@ -100,4 +100,15 @@ https://www.cardtrader.com/uploads/blueprints/image/111169/show_pidgeotto-22-102
     expect(r!.imageUrl).toContain("show_pidgeotto");
     expect(r!.imageUrl).toContain("(2).jpg");
   });
+
+  it("parse: Jina markdown [![…](preview_…(2).jpg)](card) — full image URL", () => {
+    const md = `## Best Sellers
+[![Image: Pidgeotto](https://www.cardtrader.com/uploads/blueprints/image/111169/preview_pidgeotto-22-102-base-set(2).jpg) Pidgeotto Base Set Starting from: $1.95](https://www.cardtrader.com/en/cards/pidgeotto-22-102-base-set)
+`;
+    const r = parseCardTraderBestSellerFromText(md);
+    expect(r).not.toBeNull();
+    expect(r!.imageUrl).toContain("preview_pidgeotto");
+    expect(r!.imageUrl).toContain("(2).jpg");
+    expect(r!.cardUrl).toContain("/cards/");
+  });
 });

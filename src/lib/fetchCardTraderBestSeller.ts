@@ -47,12 +47,24 @@ function isUndesirableCardImageUrl(url: string): boolean {
   );
 }
 
+/** Reject truncated markdown captures like `...base-set(2` (missing `.jpg`). */
+function looksLikeCompleteBlueprintOrImageUrl(url: string): boolean {
+  const n = normalizeCardtraderAssetUrl(url);
+  const path = n.split(/[?#]/)[0] ?? "";
+  return /\.(png|jpe?g|webp|gif)$/i.test(path);
+}
+
 function scoreCardImageCandidate(url: string): number {
   if (!url.trim()) return -9999;
   const n = normalizeCardtraderAssetUrl(url);
   if (!n || isUndesirableCardImageUrl(n)) return -1000;
+  if (!looksLikeCompleteBlueprintOrImageUrl(n)) return -2000;
   const u = n.toLowerCase();
-  if (/\/uploads\/blueprints\//i.test(u)) return 100;
+  if (/\/uploads\/blueprints\//i.test(u)) {
+    if (/show_/i.test(u)) return 102;
+    if (/preview_/i.test(u)) return 100;
+    return 98;
+  }
   if (/\/uploads\//i.test(u)) return 70;
   if (/\.(jpe?g|webp)(\?|$)/i.test(u)) return 25;
   if (/\.png(\?|$)/i.test(u)) return 15;
@@ -132,39 +144,33 @@ export function sanitizeCardHighlightName(raw: string): string {
 }
 
 /**
- * CardTrader blueprint scans live at `/uploads/blueprints/image/{id}/show_*.jpg`.
- * Filenames may contain parentheses (e.g. `show_foo(2).jpg`) — generic `https://…[^\s)]+`
- * regexes must NOT stop at `)`.
+ * CardTrader hub uses `/uploads/blueprints/image/{id}/` + `show_*`, `preview_*`, etc.
+ * Filenames may contain `()` (e.g. `...(2).jpg`). Never use `[^)]+` for the URL — it cuts at the first `)`.
  */
+const BLUEPRINT_HTTPS_SOURCE =
+  "https://(?:www\\.)?cardtrader\\.com/uploads/blueprints/image/\\d+/[^?\\s#\"'<>]+\\.(?:png|jpe?g|webp|gif)(?:\\?[^\\s\"']*)?";
+
 function extractBlueprintImageUrls(section: string): string[] {
   const out: string[] = [];
-  // Absolute https (parentheses allowed in filename)
-  for (const m of section.matchAll(
-    /https:\/\/(?:www\.)?cardtrader\.com\/uploads\/blueprints\/image\/\d+\/show_[^\s"'<>]+\.(?:png|jpe?g|webp|gif)(?:\?[^\s"']*)?/gi,
-  )) {
+  for (const m of section.matchAll(new RegExp(BLUEPRINT_HTTPS_SOURCE, "gi"))) {
     out.push(m[0].trim());
   }
-  // Protocol-relative //www.cardtrader.com/...
   for (const m of section.matchAll(
-    /\/\/(?:www\.)?cardtrader\.com(\/uploads\/blueprints\/image\/\d+\/show_[^\s"'<>]+\.(?:png|jpe?g|webp|gif)(?:\?[^\s"']*)?)/gi,
+    /\/\/(?:www\.)?cardtrader\.com(\/uploads\/blueprints\/image\/\d+\/[^?\s#"'<>]+\.(?:png|jpe?g|webp|gif)(?:\?[^\s"']*)?)/gi,
   )) {
     out.push(normalizeCardtraderAssetUrl(m[1]));
   }
-  // Site-relative /uploads/blueprints/...
   for (const m of section.matchAll(
-    /(\/uploads\/blueprints\/image\/\d+\/show_[^\s"'<>]+\.(?:png|jpe?g|webp|gif)(?:\?[^\s"']*)?)/gi,
+    /(\/uploads\/blueprints\/image\/\d+\/[^?\s#"'<>]+\.(?:png|jpe?g|webp|gif)(?:\?[^\s"']*)?)/gi,
   )) {
     out.push(m[1].trim());
   }
   return out;
 }
 
-/** Markdown images + HTML img src (relative or absolute). */
+/** HTML img only — blueprint URLs in markdown come from {@link extractBlueprintImageUrls} (parens-safe). */
 function gatherImageCandidates(section: string): string[] {
   const out: string[] = [];
-  for (const m of section.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)) {
-    out.push(m[1].trim());
-  }
   for (const m of section.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
     out.push(m[1].trim());
   }
@@ -217,8 +223,13 @@ export function parseCardTraderBestSellerFromText(fullText: string): CardTraderB
 
   let result: CardTraderBestSeller | null = null;
 
-  // 1) Classic: [![...](img)](card) — allow relative image or card URLs
-  const mdWrapped = section.match(/\[!\[[^\]]*\]\(([^)]+)\)\s*([\s\S]*?)\]\(([^)]+)\)/i);
+  // 1) Classic: [![...](img)](card) — prefer blueprint URL (allows ")" in filename); else legacy [^)]+
+  let mdWrapped = section.match(
+    /\[!\[[^\]]*\]\((https:\/\/(?:www\.)?cardtrader\.com\/uploads\/blueprints\/image\/\d+\/[^?\s#]+\.(?:png|jpe?g|webp|gif)(?:\?[^\s)]*)?)\)\s*([\s\S]*?)\]\(([^)]+)\)/i,
+  );
+  if (!mdWrapped) {
+    mdWrapped = section.match(/\[!\[[^\]]*\]\(([^)]+)\)\s*([\s\S]*?)\]\(([^)]+)\)/i);
+  }
   if (mdWrapped) {
     const cardUrl = normalizeCardtraderAssetUrl(mdWrapped[3]);
     if (looksLikeCardProductUrl(cardUrl)) {
@@ -227,17 +238,17 @@ export function parseCardTraderBestSellerFromText(fullText: string): CardTraderB
     }
   }
 
-  // 2) Image markdown + card URL line
+  // 2) First blueprint URL in section + card URL (Jina markdown with preview_…(2).jpg)
   if (!result) {
-    const mdImg = section.match(/!\[[^\]]*\]\(([^)]+)\)/);
+    const mdBlueprint = section.match(new RegExp(BLUEPRINT_HTTPS_SOURCE, "i"));
     const mdLink = section.match(
-      /(https:\/\/(?:www\.)?cardtrader\.com\/[^\s\)]*\/cards\/[^\s\)]*|\/(?:en\/)?cards\/[^\s\)]*)/i,
+      /(https:\/\/(?:www\.)?cardtrader\.com\/[^\s]*\/cards\/[^\s]*|\/(?:en\/)?cards\/[^\s]*)/i,
     );
-    if (mdImg?.[1] && mdLink?.[1]) {
+    if (mdBlueprint?.[0] && mdLink?.[1]) {
       const cardUrl = normalizeCardtraderAssetUrl(mdLink[1]);
-      if (looksLikeImageUrl(mdImg[1]) && looksLikeCardProductUrl(cardUrl)) {
-        dbg("match: md image + card url");
-        result = buildResult(mdImg[1], section.slice(0, 800), cardUrl, "Best seller");
+      if (looksLikeCardProductUrl(cardUrl)) {
+        dbg("match: blueprint url + card url");
+        result = buildResult(mdBlueprint[0], section.slice(0, 800), cardUrl, "Best seller");
       }
     }
   }
