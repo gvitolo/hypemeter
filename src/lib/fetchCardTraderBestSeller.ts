@@ -131,6 +131,34 @@ export function sanitizeCardHighlightName(raw: string): string {
   return s;
 }
 
+/**
+ * CardTrader blueprint scans live at `/uploads/blueprints/image/{id}/show_*.jpg`.
+ * Filenames may contain parentheses (e.g. `show_foo(2).jpg`) — generic `https://…[^\s)]+`
+ * regexes must NOT stop at `)`.
+ */
+function extractBlueprintImageUrls(section: string): string[] {
+  const out: string[] = [];
+  // Absolute https (parentheses allowed in filename)
+  for (const m of section.matchAll(
+    /https:\/\/(?:www\.)?cardtrader\.com\/uploads\/blueprints\/image\/\d+\/show_[^\s"'<>]+\.(?:png|jpe?g|webp|gif)(?:\?[^\s"']*)?/gi,
+  )) {
+    out.push(m[0].trim());
+  }
+  // Protocol-relative //www.cardtrader.com/...
+  for (const m of section.matchAll(
+    /\/\/(?:www\.)?cardtrader\.com(\/uploads\/blueprints\/image\/\d+\/show_[^\s"'<>]+\.(?:png|jpe?g|webp|gif)(?:\?[^\s"']*)?)/gi,
+  )) {
+    out.push(normalizeCardtraderAssetUrl(m[1]));
+  }
+  // Site-relative /uploads/blueprints/...
+  for (const m of section.matchAll(
+    /(\/uploads\/blueprints\/image\/\d+\/show_[^\s"'<>]+\.(?:png|jpe?g|webp|gif)(?:\?[^\s"']*)?)/gi,
+  )) {
+    out.push(m[1].trim());
+  }
+  return out;
+}
+
 /** Markdown images + HTML img src (relative or absolute). */
 function gatherImageCandidates(section: string): string[] {
   const out: string[] = [];
@@ -237,8 +265,9 @@ export function parseCardTraderBestSellerFromText(fullText: string): CardTraderB
   }
 
   // Prefer real card scan over `/assets/fallbacks/.../show.png` (listing flipper: back then front)
+  // Do not use `[^\s)]+` here — blueprint filenames may contain `)` e.g. `show_x(2).jpg`.
   const looseHttpsImages = [
-    ...section.matchAll(/https:\/\/[^\s\)"']+\.(?:png|jpe?g|webp|gif)(?:\?[^\s\)"']*)?/gi),
+    ...section.matchAll(/https:\/\/[^\s"']+\.(?:png|jpe?g|webp|gif)(?:\?[^\s"']*)?/gi),
   ].map((m) => m[0]);
   /** Relative uploads paths in HTML (must become absolute for Next/Image). */
   const relativeUploadImages = [
@@ -247,6 +276,7 @@ export function parseCardTraderBestSellerFromText(fullText: string): CardTraderB
     ),
   ].map((m) => m[1]);
   const allImageCandidates = [
+    ...extractBlueprintImageUrls(section),
     ...gatherImageCandidates(section),
     ...relativeUploadImages,
     ...looseHttpsImages,

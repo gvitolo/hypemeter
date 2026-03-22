@@ -88,4 +88,16 @@ https://www.cardtrader.com/en/pokemon/cards/only-link
     expect(r!.imageUrl).toContain("uploads/blueprints");
     expect(r!.cardUrl).toContain("cardtrader.com");
   });
+
+  it("parse: blueprint URL with parentheses in filename (e.g. show_...(2).jpg)", () => {
+    const md = `## Best Sellers
+https://www.cardtrader.com/en/pokemon/cards/123-slug
+https://www.cardtrader.com/uploads/blueprints/image/111169/show_pidgeotto-22-102-base-set(2).jpg
+`;
+    const r = parseCardTraderBestSellerFromText(md);
+    expect(r).not.toBeNull();
+    expect(r!.imageUrl).toContain("111169");
+    expect(r!.imageUrl).toContain("show_pidgeotto");
+    expect(r!.imageUrl).toContain("(2).jpg");
+  });
 });
