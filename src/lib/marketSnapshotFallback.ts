@@ -1,13 +1,8 @@
 import type { MarketSnapshot } from "@/lib/marketSnapshot";
 
 /**
- * Optional static numbers for **local demos only**. Never used on Vercel production — baked-in
- * prices were mistaken for “live” Yahoo data when APIs failed.
- *
- * - **Production** (`VERCEL_ENV=production` or `NODE_ENV=production`): static fill is **disabled**
- *   regardless of env vars (prevents accidental `MARKET_SNAPSHOT_STATIC_FALLBACK=1` on Vercel).
- * - **Local dev**: `MARKET_SNAPSHOT_STATIC_FALLBACK=1` — fill nulls from {@link MARKET_SNAPSHOT_PAGE_FALLBACK}.
- * - `DISABLE_MARKET_SNAPSHOT_FALLBACK=1` — skip static fill in dev too.
+ * **Not used by `fetchMarketSnapshot`** — only for unit tests of `applyMarketSnapshotFallback`.
+ * Demo constants below were once merged into the sidecar and looked like “frozen” Yahoo quotes.
  */
 export const MARKET_SNAPSHOT_PAGE_FALLBACK: MarketSnapshot = {
   sp500: 6506.48,

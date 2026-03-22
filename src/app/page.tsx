@@ -90,8 +90,8 @@ type CardTraderBestSeller = {
   fromPrice: string;
 };
 
-// ISR window. Market sidecar uses `cache: "no-store"` fetches; keep page TTL short so HTML refreshes often.
-export const revalidate = 60;
+// Always render dynamically so the market sidecar (and other live fetches) never come from stale ISR HTML.
+export const dynamic = "force-dynamic";
 
 // Curated Google News query tuned for Pokemon relevance and noise reduction.
 const NEWS_QUERY = encodeURIComponent(
@@ -1846,7 +1846,7 @@ export default async function Home() {
   let communitySentiment = 50;
   try {
     const response = await fetch(NEWS_URL, {
-      next: { revalidate },
+      next: { revalidate: 300 },
       headers: {
         "user-agent": "Mozilla/5.0 hypemeter",
       },

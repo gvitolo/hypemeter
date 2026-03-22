@@ -8,7 +8,6 @@ import {
   parseStooqMetrics,
   parseYahooChartLastTwoCloses,
 } from "@/lib/marketSnapshot";
-import { applyMarketSnapshotFallback } from "@/lib/marketSnapshotFallback";
 
 const MARKET_QUOTES_URL =
   "https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EGSPC,BTC-USD,NTDOY";
@@ -82,7 +81,11 @@ async function fetchNintendoFromYahooChart(): Promise<{
   }
 }
 
-// Fetch live S&P 500 + BTC + Nintendo ADR (NTDOY). Yahoo v7 quote first (matches Yahoo Finance pages); Stooq/CoinGecko fallback.
+/**
+ * Live S&P 500 + BTC + Nintendo ADR (NTDOY). Yahoo v7 first; Stooq/CoinGecko fallbacks.
+ * Never merges demo constants — old `MARKET_SNAPSHOT_PAGE_FALLBACK` matched real quotes sometimes,
+ * so the sidecar looked “stuck” on fake numbers even when APIs were fine.
+ */
 export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
   const fallback: MarketSnapshot = {
     sp500: null,
@@ -140,7 +143,7 @@ export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
       }
     }
     if (sp500 !== null && bitcoin !== null) {
-      return applyMarketSnapshotFallback({
+      return {
         sp500,
         bitcoin,
         nintendo,
@@ -149,7 +152,7 @@ export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
         bitcoinGrowthPct,
         nintendoGrowthPct,
         updatedAt: stamp(),
-      });
+      };
     }
   } catch {
     // fallback below
@@ -200,7 +203,7 @@ export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
       }
     }
     if (sp500 !== null && bitcoin !== null) {
-      return applyMarketSnapshotFallback({
+      return {
         sp500,
         bitcoin,
         nintendo,
@@ -209,11 +212,11 @@ export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
         bitcoinGrowthPct,
         nintendoGrowthPct,
         updatedAt: stamp(),
-      });
+      };
     }
   } catch {
     // final fallback below
   }
 
-  return applyMarketSnapshotFallback(fallback);
+  return fallback;
 }
