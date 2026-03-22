@@ -236,8 +236,19 @@ async function fetchSearchInterestScore() {
   }
 }
 
-// Approximate card market momentum from daily change hints on key PriceCharting assets.
-async function fetchMarketMomentumScore() {
+// Approximate card market momentum from PriceCharting, with market-based fallback.
+async function fetchMarketMomentumScore(marketFallback?: MarketSnapshot) {
+  const scoreFromMacroFallback = () => {
+    if (!marketFallback) return 46;
+    const btc = marketFallback.bitcoinGrowthPct;
+    const spx = marketFallback.sp500GrowthPct;
+    if (btc === null && spx === null) return 46;
+    const btcSignal = btc === null ? 0 : Math.tanh(btc / 3);
+    const spxSignal = spx === null ? 0 : Math.tanh(spx / 1.5);
+    const blended = btcSignal * 0.65 + spxSignal * 0.35;
+    return clampScore(50 + blended * 28);
+  };
+
   try {
     const pages = await Promise.all(
       PRICECHARTING_ASSETS.map((url) =>
@@ -250,24 +261,29 @@ async function fetchMarketMomentumScore() {
     for (const page of pages) {
       const changeMatch = page.match(/([$]\d[\d,]*\.\d{2})\s*([+-][$]\d[\d,]*\.\d{2})/);
       if (!changeMatch) continue;
+      const price = Number(changeMatch[1].replace(/[^\d.-]/g, ""));
       const delta = Number(changeMatch[2].replace(/[^\d.-]/g, ""));
       if (!Number.isNaN(delta)) {
-        changes.push(delta);
+        const pctChange = !Number.isNaN(price) && price > 0 ? (delta / price) * 100 : delta / 10;
+        changes.push(pctChange);
       }
     }
-    if (changes.length === 0) return 50;
+    if (changes.length === 0) return scoreFromMacroFallback();
+
     const positiveRatio =
       changes.filter((delta) => delta > 0).length / Math.max(1, changes.length);
-    const avgMagnitude = Math.min(
+    const avgSigned = changes.reduce((sum, delta) => sum + delta, 0) / Math.max(1, changes.length);
+    const intensity = Math.min(
       1,
       changes.reduce((sum, delta) => sum + Math.abs(delta), 0) /
         Math.max(1, changes.length) /
-        200,
+        6,
     );
-    const score = 35 + positiveRatio * 45 + avgMagnitude * 20;
+    const directional = Math.tanh(avgSigned / 2.2);
+    const score = 50 + directional * (18 + intensity * 16) + (positiveRatio - 0.5) * 18;
     return clampScore(score);
   } catch {
-    return 50;
+    return scoreFromMacroFallback();
   }
 }
 
@@ -302,16 +318,35 @@ async function fetchEventCatalystScore() {
 
 // Build a simple sentiment ratio from two core Pokemon-related subreddits.
 async function fetchCommunitySentimentScore() {
-  const extractTitles = (payload: string) => {
+  const extractPosts = (payload: string) => {
     try {
       const data = JSON.parse(payload) as {
-        data?: { children?: Array<{ data?: { title?: string } }> };
+        data?: {
+          children?: Array<{
+            data?: {
+              title?: string;
+              score?: number;
+              num_comments?: number;
+              upvote_ratio?: number;
+            };
+          }>;
+        };
       };
       return (data.data?.children ?? [])
-        .map((entry) => entry.data?.title ?? "")
-        .filter(Boolean);
+        .map((entry) => ({
+          title: (entry.data?.title ?? "").toLowerCase(),
+          score: entry.data?.score ?? 0,
+          comments: entry.data?.num_comments ?? 0,
+          upvoteRatio: entry.data?.upvote_ratio ?? 0.5,
+        }))
+        .filter((post) => post.title.length > 0);
     } catch {
-      return [] as string[];
+      return [] as Array<{
+        title: string;
+        score: number;
+        comments: number;
+        upvoteRatio: number;
+      }>;
     }
   };
 
@@ -324,20 +359,59 @@ async function fetchCommunitySentimentScore() {
         .then((res) => (res.ok ? res.text() : ""))
         .catch(() => ""),
     ]);
-    const titles = [...extractTitles(a), ...extractTitles(b)].map((t) => t.toLowerCase());
-    if (titles.length === 0) return 50;
-    const positive = ["hype", "bull", "surge", "sold out", "win", "great", "love"];
-    const negative = ["crash", "dead", "overpriced", "scam", "doom", "drop", "bad"];
+
+    const posts = [...extractPosts(a), ...extractPosts(b)];
+    if (posts.length === 0) return 46;
+
+    const positive = [
+      "hype",
+      "bull",
+      "surge",
+      "sold out",
+      "win",
+      "great",
+      "love",
+      "pump",
+      "strong",
+      "undervalued",
+    ];
+    const negative = [
+      "crash",
+      "dead",
+      "overpriced",
+      "scam",
+      "doom",
+      "drop",
+      "bad",
+      "dump",
+      "weak",
+      "bubble",
+    ];
     let pos = 0;
     let neg = 0;
-    for (const title of titles) {
-      pos += positive.filter((term) => title.includes(term)).length;
-      neg += negative.filter((term) => title.includes(term)).length;
+    let engagementSkew = 0;
+    let engagementWeightSum = 0;
+
+    for (const post of posts) {
+      const weight = 1 + Math.log10(Math.max(1, post.score + post.comments) + 1);
+      const p = positive.filter((term) => post.title.includes(term)).length;
+      const n = negative.filter((term) => post.title.includes(term)).length;
+      pos += p * weight;
+      neg += n * weight;
+      engagementSkew += (post.upvoteRatio - 0.5) * weight;
+      engagementWeightSum += weight;
     }
-    const ratio = (pos + 1) / (neg + 1);
-    return clampScore(50 + (Math.log(ratio) / Math.log(2)) * 20);
+
+    // Laplace-style smoothing prevents unstable jumps on low-sample days.
+    const ratio = (pos + 2) / (neg + 2);
+    const lexicalCore = 50 + (Math.log(ratio) / Math.log(2)) * 16;
+    const confidence = Math.min(1, Math.max(0.25, posts.length / 40));
+    const upvoteBias =
+      engagementWeightSum > 0 ? (engagementSkew / engagementWeightSum) * 24 : 0;
+    const blended = 50 + (lexicalCore - 50) * confidence + upvoteBias;
+    return clampScore(blended);
   } catch {
-    return 50;
+    return 46;
   }
 }
 
@@ -822,10 +896,12 @@ export default async function Home() {
     items = [];
   }
 
+  const market = await fetchMarketSnapshot();
+
   // Pull independent external signals in parallel to minimize latency.
   [searchInterest, marketMomentum, eventCatalyst, communitySentiment] = await Promise.all([
     fetchSearchInterestScore(),
-    fetchMarketMomentumScore(),
+    fetchMarketMomentumScore(market),
     fetchEventCatalystScore(),
     fetchCommunitySentimentScore(),
   ]);
@@ -844,7 +920,6 @@ export default async function Home() {
     components: indicators,
     cycle30,
   });
-  const market = await fetchMarketSnapshot();
   const mood = labelForScore(score);
   const history = buildBacktrackSeries(score);
   const todayCalendarStats = buildTodayCalendarStats(items.slice(0, 20), score);
