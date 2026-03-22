@@ -323,8 +323,9 @@ function computeLiveSignalQuality(args: {
   eventSignalCount: number;
   searchInterest: number;
   components: SignalComponent[];
+  socialTraffic: SocialTrafficSnapshot;
 }) {
-  const { items, eventSignalCount, searchInterest, components } = args;
+  const { items, eventSignalCount, searchInterest, components, socialTraffic } = args;
   if (items.length === 0) return 0;
   const sourceCounts = new Map<string, number>();
   for (const item of items) {
@@ -339,41 +340,12 @@ function computeLiveSignalQuality(args: {
   const coverage = Math.max(0, Math.min(1, Math.log10(headlineCount + 1) / Math.log10(36)));
   const sourceSpread = Math.max(0, Math.min(1, (uniqueSources - 1) / 10));
   const eventDensity = Math.max(0, Math.min(1, eventSignalCount / 10));
-  const socialBuckets = [
-    { label: "reddit", count: 0 },
-    { label: "youtube", count: 0 },
-    { label: "facebook", count: 0 },
-    { label: "official", count: 0 },
-  ];
-  for (const item of items) {
-    const source = normalize(item.source || "");
-    if (source.includes("reddit")) socialBuckets[0].count += 1;
-    if (source.includes("youtube")) socialBuckets[1].count += 1;
-    if (source.includes("facebook")) socialBuckets[2].count += 1;
-    if (
-      source.includes("pokemon.com") ||
-      source.includes("the pokemon company") ||
-      source.includes("nintendo")
-    ) {
-      socialBuckets[3].count += 1;
-    }
-  }
-  const socialActive = socialBuckets.filter((bucket) => bucket.count > 0).length;
-  const socialPresence = Math.max(0, Math.min(1, socialActive / socialBuckets.length));
-  const totalSocialHits = socialBuckets.reduce((sum, bucket) => sum + bucket.count, 0);
-  const expectedPerBucket = totalSocialHits / Math.max(1, socialBuckets.length);
-  const socialImbalance =
-    totalSocialHits > 0
-      ? socialBuckets.reduce(
-          (sum, bucket) => sum + Math.abs(bucket.count - expectedPerBucket),
-          0,
-        ) /
-        Math.max(1, totalSocialHits * 1.2)
-      : 1;
-  const socialHarmony = Math.max(
-    0,
-    Math.min(1, socialPresence * 0.65 + (1 - Math.min(1, socialImbalance)) * 0.35),
-  );
+  const socialPulse = computeSocialPulseStats(socialTraffic);
+  const socialMomentum = socialPulse.momentumScore / 100;
+  const socialBreadth = socialPulse.breadthScore / 100;
+  const socialDiversity = socialPulse.diversityScore / 100;
+  const socialConfidence = socialPulse.confidenceScore / 100;
+  const socialComposite = socialPulse.aggregateScore / 100;
 
   // "Others" harmony: reward coherence among all core components (less contradictory spread).
   const componentScores = components.map((component) => component.score);
@@ -390,14 +362,23 @@ function computeLiveSignalQuality(args: {
         })()
       : 0.55;
   const searchHealth = Math.max(0, Math.min(1, searchInterest / 100));
+  const searchSocialAlignment = Math.max(
+    0,
+    Math.min(1, 1 - Math.abs(searchInterest - socialPulse.momentumScore) / 62),
+  );
 
   const raw =
-    coverage * 0.25 +
-    sourceSpread * 0.25 +
-    eventDensity * 0.18 +
-    socialHarmony * 0.18 +
-    componentHarmony * 0.09 +
-    searchHealth * 0.05;
+    coverage * 0.2 +
+    sourceSpread * 0.17 +
+    eventDensity * 0.14 +
+    socialComposite * 0.14 +
+    socialMomentum * 0.07 +
+    socialBreadth * 0.07 +
+    socialDiversity * 0.05 +
+    socialConfidence * 0.05 +
+    componentHarmony * 0.07 +
+    searchHealth * 0.04 +
+    searchSocialAlignment * 0.1;
   const penalty = Math.max(0, maxSourceShare - 0.5) * 0.65 + unknownShare * 0.8;
   return clampScore((raw - penalty) * 100);
 }
@@ -463,7 +444,74 @@ type SocialTrafficSnapshot = Record<
   }
 >;
 
+type SocialPulseStats = {
+  momentumScore: number;
+  breadthScore: number;
+  diversityScore: number;
+  confidenceScore: number;
+  aggregateScore: number;
+};
+
 let lastSocialTrafficSnapshot: SocialTrafficSnapshot | null = null;
+
+function percentDelta(current: number, previous: number) {
+  if (current <= 0 && previous <= 0) return 0;
+  if (previous <= 0) return 100;
+  return ((current - previous) / previous) * 100;
+}
+
+function computeSocialPulseStats(snapshot: SocialTrafficSnapshot): SocialPulseStats {
+  const channels = [
+    snapshot["google-search"],
+    snapshot.reddit,
+    snapshot.youtube,
+    snapshot.facebook,
+    snapshot.threads,
+    snapshot["pokemon-official"],
+  ].map((entry) => entry ?? { current: 0, previous: 0 });
+
+  const activeCount = channels.filter((channel) => channel.current > 0).length;
+  const reliableCount = channels.filter(
+    (channel) => channel.current > 0 && channel.previous > 0,
+  ).length;
+  const deltas = channels.map((channel) => percentDelta(channel.current, channel.previous));
+  const cappedDeltaAvg =
+    deltas.reduce((sum, value) => sum + Math.max(-95, Math.min(180, value)), 0) /
+    Math.max(1, deltas.length);
+  const positiveShare = deltas.filter((value) => value > 0).length / Math.max(1, deltas.length);
+
+  const momentumScore = clampScore(50 + cappedDeltaAvg * 0.28);
+  const breadthScore = clampScore(
+    (activeCount / channels.length) * 70 + positiveShare * 30,
+  );
+
+  const totalCurrent = channels.reduce((sum, channel) => sum + Math.max(0, channel.current), 0);
+  const hhi =
+    totalCurrent > 0
+      ? channels.reduce((sum, channel) => {
+          const share = channel.current / totalCurrent;
+          return sum + share * share;
+        }, 0)
+      : 1;
+  const minHhi = 1 / channels.length;
+  const concentrationNorm = Math.max(
+    0,
+    Math.min(1, (hhi - minHhi) / Math.max(0.0001, 1 - minHhi)),
+  );
+  const diversityScore = clampScore((1 - concentrationNorm) * 100);
+  const confidenceScore = clampScore(
+    (reliableCount / channels.length) * 78 + (activeCount / channels.length) * 22,
+  );
+
+  const aggregateScore = clampScore(
+    momentumScore * 0.37 +
+      breadthScore * 0.21 +
+      diversityScore * 0.21 +
+      confidenceScore * 0.21,
+  );
+
+  return { momentumScore, breadthScore, diversityScore, confidenceScore, aggregateScore };
+}
 
 async function fetchWithTimeout(
   url: string,
@@ -1000,6 +1048,7 @@ function summarizeHype(
     marketMomentum: number;
     eventCatalyst: number;
     communitySentiment: number;
+    socialPulse: SocialPulseStats;
   },
 ) {
   // Recency and scarcity signals drive market pressure-style components.
@@ -1040,9 +1089,20 @@ function summarizeHype(
     : 32;
 
   const activityFloor = clampScore(12 + (recent24 / 28) * 24);
+  const socialSearchBlend = clampScore(
+    external.searchInterest * 0.76 + external.socialPulse.momentumScore * 0.24,
+  );
   const searchInterestScore = hasNews
-    ? Math.max(external.searchInterest, Math.min(activityFloor, 52))
-    : external.searchInterest;
+    ? Math.max(socialSearchBlend, Math.min(activityFloor, 52))
+    : socialSearchBlend;
+  const releaseCatalystScore = clampScore(
+    external.eventCatalyst * 0.84 + external.socialPulse.momentumScore * 0.16,
+  );
+  const communitySentimentScore = clampScore(
+    external.communitySentiment * 0.64 +
+      external.socialPulse.momentumScore * 0.2 +
+      external.socialPulse.breadthScore * 0.16,
+  );
 
   const components: SignalComponent[] = [
     {
@@ -1050,7 +1110,7 @@ function summarizeHype(
       label: "Search Interest",
       weight: 0.3,
       score: searchInterestScore,
-      description: "Primary demand driver from Google search intensity.",
+      description: "Demand driver from Google search intensity blended with social momentum.",
       group: "community",
     },
     {
@@ -1073,16 +1133,16 @@ function summarizeHype(
       id: "release_catalyst",
       label: "Release/Event Catalyst",
       weight: 0.13,
-      score: external.eventCatalyst,
-      description: "Boost from reveals, releases, Presents, major updates.",
+      score: releaseCatalystScore,
+      description: "Boost from reveals/releases with social acceleration confirmation.",
       group: "community",
     },
     {
       id: "community_sentiment",
       label: "Community Sentiment",
       weight: 0.1,
-      score: external.communitySentiment,
-      description: "Reddit sentiment ratio, weak-signal by design.",
+      score: communitySentimentScore,
+      description: "Reddit tone blended with cross-platform participation breadth.",
       group: "community",
     },
     {
@@ -1212,8 +1272,9 @@ function computeWindowSentiments(args: {
   marketScore: number;
   components: SignalComponent[];
   cycle30: YearScore[];
+  socialPulseScore: number;
 }) {
-  const { score, communityScore, marketScore, components, cycle30 } = args;
+  const { score, communityScore, marketScore, components, cycle30, socialPulseScore } = args;
   const last = cycle30[cycle30.length - 1]?.score ?? score;
   const prev = cycle30[cycle30.length - 2]?.score ?? last;
   const avg = (values: number[]) =>
@@ -1229,17 +1290,22 @@ function computeWindowSentiments(args: {
 
   // 1M emphasizes fast variables (search/availability/release) and immediate slope.
   const monthImpulse =
-    component("search_interest") * 0.3 +
-    component("availability_pressure") * 0.25 +
-    component("release_catalyst") * 0.2 +
-    component("community_sentiment") * 0.15 +
-    component("product_stress") * 0.1;
-  const oneMonth = clampScore(score * 0.45 + monthImpulse * 0.45 + cycleSlope * 1.5 + 5);
+    component("search_interest") * 0.27 +
+    component("availability_pressure") * 0.22 +
+    component("release_catalyst") * 0.19 +
+    component("community_sentiment") * 0.14 +
+    component("product_stress") * 0.08 +
+    socialPulseScore * 0.1;
+  const oneMonth = clampScore(score * 0.42 + monthImpulse * 0.48 + cycleSlope * 1.5 + 5);
 
   // 1Y reflects current regime blended with market/community state.
   const oneYearBase = avg(cycle30.slice(-3).map((y) => y.score));
   const oneYear = clampScore(
-    score * 0.35 + oneYearBase * 0.35 + marketScore * 0.2 + communityScore * 0.1,
+    score * 0.31 +
+      oneYearBase * 0.33 +
+      marketScore * 0.16 +
+      communityScore * 0.1 +
+      socialPulseScore * 0.1,
   );
 
   // 5Y is intentionally conservative and mildly below 1Y for realism.
@@ -1262,14 +1328,14 @@ function computeWindowSentiments(args: {
       label: "1 Month Sentiment",
       score: oneMonth,
       tone: toneForSentiment(oneMonth),
-      explanation: "Fast-cycle demand pressure from search, availability, and event triggers.",
+      explanation: "Fast-cycle demand from search, availability, catalysts, and social pulse acceleration.",
     },
     {
       key: "1y",
       label: "1 Year Sentiment",
       score: oneYear,
       tone: toneForSentiment(oneYear),
-      explanation: "Current regime health blended with market/community balance.",
+      explanation: "Regime health blended with market/community balance and cross-platform social strength.",
     },
     {
       key: "5y",
@@ -1639,7 +1705,12 @@ async function resolvePokemonOfDay(
 }
 
 // Build the initial calendar payload for "today" so it renders immediately on first load.
-function buildTodayCalendarStats(items: NewsItem[], liveHypeScore: number): CalendarDayStats {
+function buildTodayCalendarStats(
+  items: NewsItem[],
+  liveHypeScore: number,
+  searchInterest: number,
+  socialTraffic: SocialTrafficSnapshot,
+): CalendarDayStats {
   const today = new Date().toISOString().slice(0, 10);
   const text = items.map((item) => normalize(item.title)).join(" | ");
   const eventHits = ["reveal", "release", "presents", "prerelease", "expansion"].reduce(
@@ -1668,8 +1739,9 @@ function buildTodayCalendarStats(items: NewsItem[], liveHypeScore: number): Cale
   const signalQuality = computeLiveSignalQuality({
     items,
     eventSignalCount: eventSignals.length,
-    searchInterest: liveHypeScore,
+    searchInterest,
     components: [],
+    socialTraffic,
   });
 
   return {
@@ -1837,6 +1909,7 @@ export default async function Home() {
     fetchCommunitySentimentScore(),
   ]);
   socialTraffic = await fetchSocialTrafficSnapshot(searchStats, items);
+  const socialPulse = computeSocialPulseStats(socialTraffic);
   searchInterest = searchStats.score;
 
   const { score, indicators, communityScore, marketScore } = summarizeHype(items, {
@@ -1844,6 +1917,7 @@ export default async function Home() {
     marketMomentum,
     eventCatalyst,
     communitySentiment,
+    socialPulse,
   });
   const cycle30 = buildThirtyYearCycle(new Date().getFullYear());
   const sentiments = computeWindowSentiments({
@@ -1852,25 +1926,27 @@ export default async function Home() {
     marketScore,
     components: indicators,
     cycle30,
+    socialPulseScore: socialPulse.aggregateScore,
   });
   const mood = labelForScore(score);
   const history = buildBacktrackSeries(score);
-  const todayCalendarStats = buildTodayCalendarStats(items.slice(0, 20), score);
+  const todayCalendarStats = buildTodayCalendarStats(
+    items.slice(0, 20),
+    score,
+    searchInterest,
+    socialTraffic,
+  );
   const liveEventSignals = extractLiveEventSignals(items);
   const liveSignalQuality = computeLiveSignalQuality({
     items,
     eventSignalCount: liveEventSignals.length,
     searchInterest,
     components: indicators,
+    socialTraffic,
   });
   const topArticles = [...items]
     .sort((a, b) => scoreArticleRelevance(b) - scoreArticleRelevance(a))
     .slice(0, 10);
-  const pctDelta = (current: number, previous: number) => {
-    if (current <= 0 && previous <= 0) return 0;
-    if (previous <= 0) return 100;
-    return ((current - previous) / previous) * 100;
-  };
   /** Map day-over-day % change to a 0–100 bar (flat day ≈ 50%). Volume is shown in the number above. */
   const socialMomentumBarPct = (deltaPct: number) =>
     clampScore(50 + Math.max(-95, Math.min(95, deltaPct)) * 0.48);
@@ -1919,7 +1995,7 @@ export default async function Home() {
     },
   ];
   const platformGraph = platformGraphBase.map((platform) => {
-    const deltaPct = pctDelta(platform.current, platform.previous);
+    const deltaPct = percentDelta(platform.current, platform.previous);
     return {
       ...platform,
       deltaPct,
