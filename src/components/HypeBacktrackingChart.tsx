@@ -164,10 +164,19 @@ export default function HypeBacktrackingChart({
             />
           );
         })}
+        {/* Hype streamline first — thin market lines are drawn ON TOP so they stay visible */}
+        <polyline
+          fill="none"
+          stroke="rgba(34, 211, 238, 0.95)"
+          strokeWidth="4"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          points={polyline}
+        />
         {marketLines?.map((line) => {
           const dim = highlightSeries !== null && highlightSeries !== line.key;
-          const strokeWidth = highlightSeries === line.key ? 2.6 : 1.15;
-          const opacity = dim ? 0.18 : highlightSeries === line.key ? 1 : 0.42;
+          const strokeWidth = highlightSeries === line.key ? 2.8 : 1.65;
+          const opacity = dim ? 0.22 : highlightSeries === line.key ? 1 : 0.78;
           return (
             <polyline
               key={line.key}
@@ -181,14 +190,6 @@ export default function HypeBacktrackingChart({
             />
           );
         })}
-        <polyline
-          fill="none"
-          stroke="rgba(34, 211, 238, 0.95)"
-          strokeWidth="4"
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          points={polyline}
-        />
         <rect
           x={padX}
           y={padY}

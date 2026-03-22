@@ -19,8 +19,9 @@ async function fetchYahooYearlyCloses(symbol: string): Promise<YearlyCloseMap> {
   const map: YearlyCloseMap = new Map();
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1mo&range=max`;
+    // Monthly historical series — not intraday; cache aggressively (aligns with “delayed” quote pages).
     const res = await fetch(url, {
-      next: { revalidate: 3600 },
+      next: { revalidate: 86400 },
       headers: { "user-agent": YAHOO_CHART_UA },
     });
     if (!res.ok) return map;
