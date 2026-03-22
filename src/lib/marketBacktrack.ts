@@ -88,11 +88,13 @@ export function parseFredCpiCsvToMonthlyRows(csv: string): CpiMonthRow[] {
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(",");
     const dateStr = cols[0]?.trim();
-    const valStr = cols[1]?.trim();
-    if (!dateStr || valStr === undefined) continue;
+    const rawVal = cols[1]?.trim();
+    if (!dateStr || rawVal === undefined || rawVal === "") continue;
     if (!/^\d{4}-\d{2}-\d{2}/.test(dateStr)) continue;
-    const cpi = Number(valStr);
-    if (Number.isNaN(cpi)) continue;
+    // FRED CSV sometimes leaves a month blank; API uses "." — never treat as 0 (Number("") === 0 in JS).
+    if (rawVal === ".") continue;
+    const cpi = Number(rawVal);
+    if (Number.isNaN(cpi) || cpi <= 0) continue;
     const d = new Date(dateStr + "T12:00:00Z");
     if (Number.isNaN(d.getTime())) continue;
     out.push({ y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, t: d.getTime(), cpi });
@@ -132,8 +134,55 @@ export function buildCpiYoYPercentByYearFromMonthlyRows(monthly: CpiMonthRow[]):
   return map;
 }
 
-/** FRED CPIAUCSL — updated monthly; includes recent years (unlike lagging World Bank annual tables). */
-async function fetchFredCpiYoYByYear(): Promise<Map<number, number>> {
+/**
+ * Official FRED API (JSON) — preferred when `FRED_API_KEY` is set (free key:
+ * https://fred.stlouisfed.org/docs/api/api_key.html ). More reliable than graph CSV from some hosts.
+ * @see https://fred.stlouisfed.org/docs/api/fred/series_observations.html
+ */
+async function fetchFredCpiYoYFromApi(): Promise<Map<number, number>> {
+  const key = process.env.FRED_API_KEY?.trim();
+  if (!key) return new Map();
+  try {
+    const url = new URL("https://api.stlouisfed.org/fred/series/observations");
+    url.searchParams.set("series_id", "CPIAUCSL");
+    url.searchParams.set("api_key", key);
+    url.searchParams.set("file_type", "json");
+    url.searchParams.set("observation_start", "1947-01-01");
+    url.searchParams.set("sort_order", "asc");
+    url.searchParams.set("limit", "10000");
+    const res = await fetchWithTimeout(url.toString(), {
+      next: { revalidate: 86400 },
+    });
+    if (!res.ok) return new Map();
+    const json = (await res.json()) as {
+      observations?: Array<{ date?: string; value?: string }>;
+    };
+    const obs = json.observations ?? [];
+    const monthly: CpiMonthRow[] = [];
+    for (const o of obs) {
+      const dateStr = o.date?.trim();
+      const rawVal = o.value?.trim();
+      if (!dateStr || !rawVal || rawVal === ".") continue;
+      const cpi = Number(rawVal);
+      if (Number.isNaN(cpi) || cpi <= 0) continue;
+      const d = new Date(dateStr + "T12:00:00Z");
+      if (Number.isNaN(d.getTime())) continue;
+      monthly.push({
+        y: d.getUTCFullYear(),
+        m: d.getUTCMonth() + 1,
+        t: d.getTime(),
+        cpi,
+      });
+    }
+    monthly.sort((a, b) => a.t - b.t);
+    return buildCpiYoYPercentByYearFromMonthlyRows(monthly);
+  } catch {
+    return new Map();
+  }
+}
+
+/** FRED CPIAUCSL — graph CSV fallback (same series as https://fred.stlouisfed.org/series/CPIAUCSL ). */
+async function fetchFredCpiYoYFromGraphCsv(): Promise<Map<number, number>> {
   try {
     const url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL";
     const res = await fetchWithTimeout(url, {
@@ -147,6 +196,12 @@ async function fetchFredCpiYoYByYear(): Promise<Map<number, number>> {
   } catch {
     return new Map();
   }
+}
+
+async function fetchFredCpiYoYByYear(): Promise<Map<number, number>> {
+  const fromApi = await fetchFredCpiYoYFromApi();
+  if (fromApi.size > 0) return fromApi;
+  return fetchFredCpiYoYFromGraphCsv();
 }
 
 async function fetchStooqYearlyClosesBySymbol(stooqSymbol: string): Promise<YearlyCloseMap> {

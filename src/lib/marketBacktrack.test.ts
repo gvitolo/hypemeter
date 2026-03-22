@@ -85,6 +85,18 @@ describe("marketBacktrack", () => {
     expect(map.get(2006)).toBeCloseTo((106 / 103 - 1) * 100, 5);
   });
 
+  it("FRED CSV skips blank cells (do not coerce Number('') to 0)", () => {
+    const csv = `observation_date,CPIAUCSL
+2025-09-01,324.000
+2025-10-01,
+2025-11-01,325.000`;
+    const rows = parseFredCpiCsvToMonthlyRows(csv);
+    const byM = new Map(rows.map((r) => [`${r.y}-${r.m}`, r.cpi]));
+    expect(byM.get("2025-9")).toBe(324);
+    expect(byM.get("2025-10")).toBeUndefined();
+    expect(byM.get("2025-11")).toBe(325);
+  });
+
   it("parseStooqDailyHistoryToYearlyLastClose keeps last close per year", () => {
     const csv = `Date,Open,High,Low,Close,Volume
 2019-06-01,1,1,1,10,1
