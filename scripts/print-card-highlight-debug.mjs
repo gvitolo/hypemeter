@@ -6,7 +6,7 @@
  *   SITE_URL=https://tuodominio.vercel.app npm run debug:card
  *   node scripts/print-card-highlight-debug.mjs http://localhost:3000
  *
- * Production needs ENABLE_DEBUG_CARDTRADER=1 on Vercel for this endpoint to return 200.
+ * Works against production without extra env vars (same as opening /debug in the browser).
  */
 import { writeFileSync } from "node:fs";
 import path from "node:path";

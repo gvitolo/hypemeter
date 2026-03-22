@@ -1,7 +1,10 @@
 import { loadHomePageDataUncached } from "@/app/page";
+import {
+  getCardHighlightImageDebugPayload,
+  getCardTraderJinaDebugPayload,
+} from "@/lib/debugCardTraderPayloads";
 import { runWithTimingCollector } from "@/lib/serverTiming";
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import type { ReactNode } from "react";
 
 /** Must read env at request time on Vercel (not at build). */
@@ -17,39 +20,10 @@ function isDebugTimingEnabled(): boolean {
   return process.env.ENABLE_DEBUG_TIMING_PAGE === "1";
 }
 
-async function requestOrigin(): Promise<string> {
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? (host.includes("localhost") ? "http" : "https");
-  return `${proto}://${host}`;
-}
-
-async function fetchDebugJson(path: string): Promise<{ status: number; text: string }> {
-  try {
-    const origin = await requestOrigin();
-    const res = await fetch(`${origin}${path}`, {
-      cache: "no-store",
-      next: { revalidate: 0 },
-    });
-    const text = await res.text();
-    return { status: res.status, text };
-  } catch (e) {
-    return { status: 0, text: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-function prettyJson(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
-}
-
 export default async function DebugPage() {
-  const [cardHighlight, cardTrader] = await Promise.all([
-    fetchDebugJson("/api/debug/card-highlight-image"),
-    fetchDebugJson("/api/debug/card-trader"),
+  const [cardHighlightPayload, cardTraderPayload] = await Promise.all([
+    getCardHighlightImageDebugPayload(),
+    getCardTraderJinaDebugPayload(),
   ]);
 
   let timingBlock: ReactNode = null;
@@ -113,39 +87,24 @@ export default async function DebugPage() {
       <div className="mx-auto max-w-4xl">
         <h1 className="text-2xl font-bold text-cyan-300">Debug · Monmeter</h1>
         <p className="mt-2 text-sm text-slate-400">
-          Internal diagnostics. JSON below comes from the same API routes as{" "}
-          <code className="rounded bg-slate-800 px-1">npm run debug:card</code>. On production, enable{" "}
-          <code className="rounded bg-slate-800 px-1">ENABLE_DEBUG_CARDTRADER=1</code> for full payloads.
+          Internal diagnostics. Payloads are built server-side (same as{" "}
+          <code className="rounded bg-slate-800 px-1">GET /api/debug/card-highlight-image</code> and{" "}
+          <code className="rounded bg-slate-800 px-1">GET /api/debug/card-trader</code>
+          ). Run <code className="rounded bg-slate-800 px-1">npm run debug:card</code> to save JSON to{" "}
+          <code className="rounded bg-slate-800 px-1">last-card-debug.json</code>.
         </p>
 
-        {cardHighlight.status === 404 && cardTrader.status === 404 ? (
-          <div className="mt-6 rounded-xl border border-amber-500/40 bg-amber-950/40 px-4 py-3 text-sm text-amber-100/95">
-            <p className="font-medium text-amber-200">Debug APIs disabled in production</p>
-            <p className="mt-2 text-amber-100/85">
-              Vercel → your project → <strong>Settings</strong> → <strong>Environment Variables</strong>: add{" "}
-              <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-xs">ENABLE_DEBUG_CARDTRADER</code>{" "}
-              = <code className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-xs">1</code> for{" "}
-              <strong>Production</strong>, then redeploy. The sections below will return full JSON (Jina + seller +
-              image) instead of HTTP 404.
-            </p>
-          </div>
-        ) : null}
-
         <section className="mt-8">
-          <h2 className="text-lg font-semibold text-amber-200/95">
-            Card highlight image <span className="text-xs font-normal text-slate-500">(HTTP {cardHighlight.status})</span>
-          </h2>
+          <h2 className="text-lg font-semibold text-amber-200/95">Card highlight image</h2>
           <pre className="mt-2 max-h-[min(70vh,32rem)] overflow-auto rounded-xl border border-white/10 bg-slate-900/90 p-3 text-xs leading-relaxed text-slate-200">
-            {prettyJson(cardHighlight.text)}
+            {JSON.stringify(cardHighlightPayload, null, 2)}
           </pre>
         </section>
 
         <section className="mt-8">
-          <h2 className="text-lg font-semibold text-amber-200/95">
-            CardTrader + Jina <span className="text-xs font-normal text-slate-500">(HTTP {cardTrader.status})</span>
-          </h2>
+          <h2 className="text-lg font-semibold text-amber-200/95">CardTrader + Jina</h2>
           <pre className="mt-2 max-h-[min(70vh,32rem)] overflow-auto rounded-xl border border-white/10 bg-slate-900/90 p-3 text-xs leading-relaxed text-slate-200">
-            {prettyJson(cardTrader.text)}
+            {JSON.stringify(cardTraderPayload, null, 2)}
           </pre>
         </section>
 
