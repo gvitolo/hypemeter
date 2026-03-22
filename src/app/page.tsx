@@ -2062,7 +2062,7 @@ export default async function Home() {
                 </p>
                 <h1 className="mt-2 text-3xl font-black tracking-tight md:text-5xl">
                   Pokemon Hype Meter
-                </h1>
+          </h1>
                 <p className="mt-3 max-w-3xl text-sm text-slate-300 md:text-base">
                   A real-time snapshot of Pokemon buzz, built from live headlines and
                   trend signals.
@@ -2098,7 +2098,7 @@ export default async function Home() {
                           from ${cardTraderBestSeller.fromPrice}
                         </p>
                       ) : null}
-                    </div>
+        </div>
                   </a>
                 </div>
               ) : null}
@@ -2121,7 +2121,7 @@ export default async function Home() {
                   </p>
                   <div className="mt-2 flex min-h-0 flex-1 items-start gap-3">
                     {pokemonOfDay.image ? (
-                      <Image
+            <Image
                         src={pokemonOfDay.image}
                         alt={pokemonOfDay.name}
                         width={64}
@@ -2428,7 +2428,7 @@ export default async function Home() {
                   <a
                     className="text-sm font-semibold text-cyan-300 hover:text-cyan-200"
                     href={item.link}
-                    target="_blank"
+            target="_blank"
                     rel="noreferrer"
                   >
                     {item.title}
@@ -2446,7 +2446,7 @@ export default async function Home() {
           )}
         </section>
         </ScrollReveal>
-      </div>
-    </main>
+        </div>
+      </main>
   );
 }

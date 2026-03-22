@@ -1,39 +1,27 @@
 /**
- * Yahoo v7 quote parsing + Stooq CSV helpers for the Market Sidecar.
- * Kept pure for unit tests; fetch orchestration lives in fetchMarketSnapshot.ts.
+ * Legacy Yahoo-shaped quote parsing (kept for unit tests) + Stooq CSV helpers for the Market Sidecar.
+ * Live fetches use Stooq / CoinGecko / Binance only — see `fetchMarketSnapshot.ts`.
  */
 
 /** Where S&P numbers came from (sidecar transparency). */
-export type Sp500QuoteSource =
-  | "yahoo-daily"
-  | "yahoo"
-  | "stooq"
-  | "yahoo-chart"
-  | "stooq-daily";
+export type Sp500QuoteSource = "stooq" | "stooq-daily";
 
 /** Where BTC numbers came from. */
-export type BitcoinQuoteSource =
-  | "yahoo-daily"
-  | "yahoo"
-  | "stooq"
-  | "stooq-daily"
-  | "coingecko"
-  | "yahoo-chart"
-  | "binance";
+export type BitcoinQuoteSource = "stooq" | "stooq-daily" | "coingecko" | "binance";
 
 export type MarketSnapshot = {
   sp500: number | null;
   bitcoin: number | null;
   /** Nintendo Co. — USD (ADR) or USD approx from Tokyo JPY ÷ USDJPY. */
   nintendo: number | null;
-  /** Prior session close (USD), when available — Yahoo quote or daily chart. */
+  /** Prior session close (USD), when available — Stooq line or daily CSV. */
   nintendoPreviousClose: number | null;
   sp500GrowthPct: number | null;
   bitcoinGrowthPct: number | null;
   nintendoGrowthPct: number | null;
   updatedAt: string | null;
   /**
-   * `adr` = Yahoo/Stooq NTDOY (US OTC). `tokyo` = 7974.T chart or Stooq 7974.jp, converted to USD.
+   * `adr` = Stooq NTDOY (US OTC). `tokyo` = Stooq 7974.jp (JPY) → USD via USDJPY.
    */
   nintendoSource: "adr" | "tokyo" | null;
   sp500Source: Sp500QuoteSource | null;

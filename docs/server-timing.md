@@ -1,11 +1,15 @@
 # Server timing debug (Vercel)
 
-La homepage e le lib di mercato loggano durate con il prefisso **`[server-timing]`**.
+È **fatto apposta per seguire** cosa succede **dentro una singola invocazione** della serverless function che renderizza `/` (non crea una “function” Vercel per ogni step: sono **blocchi `timedAsync`** nello stesso handler).
+
+Ogni label (`home:…`, `overlay:…`, …) è uno **step sequenziale o parallelo** misurato nel log della **stessa** Function; così nei **Runtime logs** vedi dove si accumola tempo prima del timeout ~10s (Hobby).
+
+Formato riga: **`nomeStep millisecondi`** (es. `home:fetchMarketSnapshot 842ms`).
 
 ## Cosa compare nei log
 
-- **`⚠️ SLOW (≥10000ms)`** — quella sezione ha superato **10 secondi** (tipico limite Vercel Hobby). Da ottimizzare per prima.
-- Senza env extra, solo le sezioni **≥10s** vengono loggate (`console.warn`), così i log di produzione restano puliti.
+- Senza env extra, solo gli step **≥ 10s** (`console.warn`) — tipico limite Vercel Hobby; da ottimizzare per primi.
+- Con `DEBUG_PAGE_TIMING=1`, anche gli step veloci (`console.log`).
 
 ## Log di tutte le sezioni (anche veloci)
 

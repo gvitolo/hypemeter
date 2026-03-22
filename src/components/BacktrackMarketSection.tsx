@@ -13,8 +13,6 @@ import {
   STOOQ_QUOTE_BTCUSD,
   STOOQ_QUOTE_SPX,
   FRED_CPIAUCSL_SERIES,
-  YAHOO_QUOTE_BTC,
-  YAHOO_QUOTE_SP500,
 } from "@/lib/yahooQuotes";
 
 type YearScore = { year: number; score: number };
@@ -30,16 +28,8 @@ type MarketSnap = {
   nintendoGrowthPct: number | null;
   updatedAt: string | null;
   nintendoSource: "adr" | "tokyo" | null;
-  sp500Source: "yahoo-daily" | "yahoo" | "stooq" | "yahoo-chart" | "stooq-daily" | null;
-  bitcoinSource:
-    | "yahoo-daily"
-    | "yahoo"
-    | "stooq"
-    | "stooq-daily"
-    | "coingecko"
-    | "yahoo-chart"
-    | "binance"
-    | null;
+  sp500Source: "stooq" | "stooq-daily" | null;
+  bitcoinSource: "stooq" | "stooq-daily" | "coingecko" | "binance" | null;
 };
 
 type Props = {
@@ -56,20 +46,14 @@ const MOBILE_CHART_LAST_N_YEARS = 3;
 const MOBILE_CHART_MQ = "(max-width: 767px)";
 
 const SP500_SOURCE_NOTE: Record<NonNullable<MarketSnap["sp500Source"]>, string> = {
-  "yahoo-daily": "Yahoo 1d daily",
-  yahoo: "Yahoo quote",
   stooq: "Stooq",
-  "yahoo-chart": "Yahoo chart (1d)",
   "stooq-daily": "Stooq daily",
 };
 
 const BTC_SOURCE_NOTE: Record<NonNullable<MarketSnap["bitcoinSource"]>, string> = {
-  "yahoo-daily": "Yahoo 1d daily",
-  yahoo: "Yahoo quote",
   stooq: "Stooq",
   "stooq-daily": "Stooq daily",
   coingecko: "CoinGecko",
-  "yahoo-chart": "Yahoo chart (1d)",
   binance: "Binance (1d)",
 };
 
@@ -90,18 +74,13 @@ export default function BacktrackMarketSection({
     [isMobileChart, history, marketOverlay, events],
   );
 
-  const sp500Href =
-    market.sp500Source === "stooq-daily" || market.sp500Source === "stooq"
-      ? STOOQ_QUOTE_SPX
-      : YAHOO_QUOTE_SP500;
+  const sp500Href = STOOQ_QUOTE_SPX;
   const btcHref =
     market.bitcoinSource === "binance"
       ? BINANCE_BTC_USDT
       : market.bitcoinSource === "coingecko"
         ? COINGECKO_BTC
-        : market.bitcoinSource === "stooq" || market.bitcoinSource === "stooq-daily"
-          ? STOOQ_QUOTE_BTCUSD
-          : YAHOO_QUOTE_BTC;
+        : STOOQ_QUOTE_BTCUSD;
 
   const inflationSidecar = useMemo(() => {
     const y = marketOverlay.inflationYoY;

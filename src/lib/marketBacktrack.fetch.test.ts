@@ -2,16 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchMarketYearlyOverlay } from "@/lib/marketBacktrack";
 
 /**
- * Integration-style tests: mock global fetch with Yahoo Finance v8 chart JSON shapes.
+ * Integration-style tests: mock Stooq daily CSV + FRED CPI.
  * Ensures overlay arrays always match history length (client chart expects length === n).
  */
-
-function jsonRes(data: unknown): Response {
-  return new Response(JSON.stringify(data), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}
 
 function csvRes(body: string): Response {
   return new Response(body, { status: 200, headers: { "Content-Type": "text/csv" } });
@@ -26,37 +19,16 @@ function mockFredCpiCsvFrom2004() {
   return lines.join("\n");
 }
 
-/** Minimal v8 chart payload: monthly timestamps + closes (one bar per year for tests). */
-function yahooV8MonthlyChart(
-  closes: number[],
-  startYear: number,
-): {
-  chart: {
-    result: Array<{
-      timestamp: number[];
-      indicators: { quote: Array<{ close: Array<number | null> }> };
-    }>;
-  };
-} {
-  const timestamp = closes.map((_, i) => {
-    const d = new Date(Date.UTC(startYear + i, 6, 15));
-    return Math.floor(d.getTime() / 1000);
-  });
-  return {
-    chart: {
-      result: [
-        {
-          timestamp,
-          indicators: {
-            quote: [{ close: closes.map((c) => c) }],
-          },
-        },
-      ],
-    },
-  };
+/** Stooq daily CSV: one row per year (last close in year). */
+function mockStooqDailyYearly(startYear: number, endYear: number, base: number, step: number): string {
+  const lines = ["Date,Close"];
+  for (let y = startYear; y <= endYear; y++) {
+    lines.push(`${y}-12-30,${(base + (y - startYear) * step).toFixed(4)}`);
+  }
+  return lines.join("\n");
 }
 
-describe("fetchMarketYearlyOverlay (mocked Yahoo v8 chart API)", () => {
+describe("fetchMarketYearlyOverlay (mocked Stooq + FRED)", () => {
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {
@@ -64,30 +36,35 @@ describe("fetchMarketYearlyOverlay (mocked Yahoo v8 chart API)", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns three series with same length as years[] when Yahoo returns monthly data", async () => {
+  it("returns series with same length as years[] when Stooq returns daily CSV", async () => {
     const years: number[] = [];
     for (let y = 2005; y <= 2026; y += 1) years.push(y);
     const n = years.length;
 
-    const gspcCloses = years.map((_, i) => 1000 + i * 50);
-    const btcCloses = years.map((_, i) => 100 + i * 10);
-    const ntdyCloses = years.map((_, i) => 10 + i * 0.2);
-
+    const spCsv = mockStooqDailyYearly(2005, 2026, 1000, 50);
+    const btcCsv = mockStooqDailyYearly(2005, 2026, 100, 10);
+    const ntCsv = mockStooqDailyYearly(2005, 2026, 10, 0.2);
     const fredCsv = mockFredCpiCsvFrom2004();
 
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("%5EGSPC") && url.includes("interval=1mo")) {
-        return jsonRes(yahooV8MonthlyChart(gspcCloses, 2005));
+      if (url.includes("stooq.com/q/d/l") && (url.includes("%5Espx") || url.includes("^spx"))) {
+        return csvRes(spCsv);
       }
-      if (url.includes("BTC-USD") && url.includes("interval=1mo")) {
-        return jsonRes(yahooV8MonthlyChart(btcCloses, 2005));
+      if (url.includes("stooq.com/q/d/l") && url.includes("btcusd")) {
+        return csvRes(btcCsv);
       }
-      if (url.includes("NTDOY") && url.includes("interval=1mo")) {
-        return jsonRes(yahooV8MonthlyChart(ntdyCloses, 2005));
+      if (url.includes("stooq.com/q/d/l") && url.includes("ntdoy")) {
+        return csvRes(ntCsv);
       }
       if (url.includes("fred.stlouisfed.org/graph/fredgraph.csv") && url.includes("CPIAUCSL")) {
         return csvRes(fredCsv);
+      }
+      if (url.includes("api.worldbank.org")) {
+        return new Response(
+          JSON.stringify([{}, []]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
       }
       return new Response("not found", { status: 404 });
     }) as typeof fetch;
@@ -105,7 +82,7 @@ describe("fetchMarketYearlyOverlay (mocked Yahoo v8 chart API)", () => {
     expect(overlay.inflation.every((v) => typeof v === "number" && !Number.isNaN(v))).toBe(true);
   });
 
-  it("still returns length-matched placeholder series when Yahoo returns empty (flat mid-chart)", async () => {
+  it("still returns length-matched placeholder series when upstream returns empty (flat mid-chart)", async () => {
     const years = [2020, 2021, 2022];
     const n = years.length;
 

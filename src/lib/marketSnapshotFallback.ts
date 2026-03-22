@@ -2,7 +2,7 @@ import type { MarketSnapshot } from "@/lib/marketSnapshot";
 
 /**
  * **Not used by `fetchMarketSnapshot`** — only for unit tests of `applyMarketSnapshotFallback`.
- * Demo constants below were once merged into the sidecar and looked like “frozen” Yahoo quotes.
+ * Demo constants below were once merged into the sidecar as frozen placeholder quotes.
  */
 export const MARKET_SNAPSHOT_PAGE_FALLBACK: MarketSnapshot = {
   sp500: 6506.48,
@@ -15,8 +15,8 @@ export const MARKET_SNAPSHOT_PAGE_FALLBACK: MarketSnapshot = {
   nintendoGrowthPct: -3.29,
   updatedAt: null,
   nintendoSource: "adr",
-  sp500Source: "yahoo-daily",
-  bitcoinSource: "yahoo-daily",
+  sp500Source: "stooq-daily",
+  bitcoinSource: "stooq-daily",
 };
 
 function stampNow(): string {
@@ -26,7 +26,7 @@ function stampNow(): string {
   });
 }
 
-/** Any Vercel deploy or production Node — demo constants must never mask failed Yahoo fetches. */
+/** Any Vercel deploy or production Node — demo constants must never mask failed live fetches. */
 function isProductionContext(): boolean {
   return (
     process.env.VERCEL === "1" ||

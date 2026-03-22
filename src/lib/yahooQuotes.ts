@@ -1,17 +1,10 @@
-export const YAHOO_QUOTE_SP500 = "https://finance.yahoo.com/quote/%5EGSPC";
-export const YAHOO_QUOTE_BTC = "https://finance.yahoo.com/quote/BTC-USD";
-export const YAHOO_QUOTE_NTDY = "https://finance.yahoo.com/quote/NTDOY";
-/** Tokyo listing — used when sidecar fills from 7974.T / Stooq JPY series. */
-export const YAHOO_QUOTE_7974T = "https://finance.yahoo.com/quote/7974.T";
-/** Stooq S&P 500 — when sidecar uses Stooq daily last-two-closes. */
+/** External links for the market sidecar (no Yahoo Finance). */
+
 export const STOOQ_QUOTE_SPX = "https://stooq.com/q/?s=%5Espx";
-/** Stooq BTC/USD — when sidecar uses Stooq line. */
 export const STOOQ_QUOTE_BTCUSD = "https://stooq.com/q/?s=btcusd";
-/** Stooq Tokyo listing — Nintendo (opens when clicking the sidecar box). */
+/** Nintendo ADR / Tokyo — Stooq listings. */
+export const STOOQ_QUOTE_NTDY = "https://stooq.com/q/?s=ntdoy.us";
 export const STOOQ_QUOTE_7974_JP = "https://stooq.com/q/?s=7974.jp";
-/** FRED CPIAUCSL — US CPI index (same source as overlay YoY %). */
 export const FRED_CPIAUCSL_SERIES = "https://fred.stlouisfed.org/series/CPIAUCSL";
-/** Binance spot — when sidecar uses Binance klines fallback. */
 export const BINANCE_BTC_USDT = "https://www.binance.com/en/trade/BTC_USDT";
-/** CoinGecko — when price comes from CG simple/price. */
 export const COINGECKO_BTC = "https://www.coingecko.com/en/coins/bitcoin";

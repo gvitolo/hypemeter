@@ -226,6 +226,8 @@ export default function HypeBacktrackingChart({
   const polyline = points.map((point) => `${point.x},${point.y}`).join(" ");
   // Active point powers tooltip and stat cards; defaults to latest year.
   const [activeIndex, setActiveIndex] = useState(Math.max(points.length - 1, 0));
+  /** Floating SVG tooltip (rect + labels) only while pointer is over the chart — not at rest. */
+  const [chartHovered, setChartHovered] = useState(false);
 
   const scrubFromClientX = useCallback(
     (clientX: number, bounds: DOMRect) => {
@@ -314,7 +316,11 @@ export default function HypeBacktrackingChart({
         </div>
       </div>
 
-      <div className="relative min-h-[220px] w-full overflow-hidden sm:min-h-[260px] lg:min-h-[280px]">
+      <div
+        className="relative min-h-[220px] w-full overflow-hidden sm:min-h-[260px] lg:min-h-[280px]"
+        onPointerEnter={() => setChartHovered(true)}
+        onPointerLeave={() => setChartHovered(false)}
+      >
         <svg
           viewBox={`0 0 ${chartWidth} ${chartHeight}`}
           className="h-full w-full"
@@ -425,7 +431,7 @@ export default function HypeBacktrackingChart({
           );
         })}
 
-        {active ? (
+        {active && chartHovered ? (
           <>
             <line
               x1={active.x}

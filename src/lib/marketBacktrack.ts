@@ -1,12 +1,9 @@
 /**
- * Yearly Yahoo Finance monthly closes → normalized 0–100 series for the hype chart overlay.
+ * Yearly closes from **Stooq** daily history → normalized 0–100 series for the hype chart overlay.
  */
 
 import staticCpiYoYByYear from "@/data/staticCpiYoYByYear.json";
 import { timedAsync } from "@/lib/serverTiming";
-
-const YAHOO_CHART_UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 export type MarketHighlightKey = "sp500" | "btc" | "nintendo" | "inflation";
 
@@ -62,10 +59,10 @@ export function parseStooqDailyHistoryToYearlyLastClose(csv: string): YearlyClos
   return map;
 }
 
-/** Stooq fills gaps when Yahoo v8 monthly is empty or incomplete. Yahoo values win on year collisions. */
-function mergeYearlyMaps(yahoo: YearlyCloseMap, stooq: YearlyCloseMap): YearlyCloseMap {
-  const out = new Map<number, number>(stooq);
-  for (const [y, c] of yahoo) out.set(y, c);
+/** `primary` wins on year collision (e.g. `ntdoy.us` over plain `ntdoy`). */
+function mergeYearlyMaps(primary: YearlyCloseMap, secondary: YearlyCloseMap): YearlyCloseMap {
+  const out = new Map<number, number>(secondary);
+  for (const [y, c] of primary) out.set(y, c);
   return out;
 }
 
@@ -347,57 +344,9 @@ async function fetchStooqYearlyClosesBySymbol(stooqSymbol: string): Promise<Year
   }
 }
 
-/** Exported for tests — Yahoo monthly closes, last bar per calendar year. */
-export async function fetchYahooYearlyCloses(symbol: string): Promise<YearlyCloseMap> {
-  const map: YearlyCloseMap = new Map();
-  try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1mo&range=max`;
-    // Monthly historical series — not intraday; cache aggressively (aligns with “delayed” quote pages).
-    const res = await fetch(url, {
-      next: { revalidate: 86400 },
-      headers: { "user-agent": YAHOO_CHART_UA },
-      signal: AbortSignal.timeout(HIST_FETCH_TIMEOUT_MS),
-    });
-    if (!res.ok) return map;
-    const json = (await res.json()) as {
-      chart?: {
-        error?: { description?: string };
-        result?: Array<{
-          timestamp?: number[];
-          indicators?: {
-            quote?: Array<{ close?: Array<number | null> }>;
-            adjclose?: Array<{ adjclose?: Array<number | null> }>;
-          };
-        }>;
-      };
-    };
-    if (json.chart?.error) return map;
-    const result = json.chart?.result?.[0];
-    const ts = result?.timestamp;
-    const quote = result?.indicators?.quote?.[0];
-    const closeArr = quote?.close;
-    const adjArr = result?.indicators?.adjclose?.[0]?.adjclose;
-    if (!ts?.length) return map;
-
-    const byYear = new Map<number, { t: number; c: number }>();
-    for (let i = 0; i < ts.length; i++) {
-      const raw = closeArr?.[i] ?? adjArr?.[i] ?? null;
-      if (raw == null || Number.isNaN(Number(raw))) continue;
-      const c = Number(raw);
-      const y = new Date(ts[i] * 1000).getFullYear();
-      const prev = byYear.get(y);
-      if (!prev || ts[i] > prev.t) byYear.set(y, { t: ts[i], c });
-    }
-    for (const [y, v] of byYear) map.set(y, v.c);
-  } catch {
-    // leave empty
-  }
-  return map;
-}
-
 /**
  * Pre-first datapoint = first known close (flat line), then forward-fill.
- * If Yahoo returns nothing, we still emit a flat placeholder so the chart always draws
+ * If Stooq returns nothing, we still emit a flat placeholder so the chart always draws
  * three colored overlays (they sit near mid-chart, not collapsed at 0).
  */
 export function alignYearSeries(years: number[], yearly: YearlyCloseMap): number[] {
@@ -446,29 +395,20 @@ export async function fetchMarketYearlyOverlay(years: number[]): Promise<MarketY
   if (years.length === 0) {
     return { sp500: [], btc: [], nintendo: [], inflationYoY: [], inflation: [] };
   }
-  const [spY, btcY, ntY, spS, btcS, cpiYoYMap] = await Promise.all([
-    timedAsync("overlay:yahoo^GSPC", () => fetchYahooYearlyCloses("^GSPC")),
-    timedAsync("overlay:yahooBTC-USD", () => fetchYahooYearlyCloses("BTC-USD")),
-    timedAsync("overlay:yahooNTDOY", () => fetchYahooYearlyCloses("NTDOY")),
+  const [spS, btcS, ntUs, ntPlain, cpiYoYMap] = await Promise.all([
     timedAsync("overlay:stooq^spx", () => fetchStooqYearlyClosesBySymbol("^spx")),
     timedAsync("overlay:stooqbtcusd", () => fetchStooqYearlyClosesBySymbol("btcusd")),
+    timedAsync("overlay:stooqNtdyUs", () => fetchStooqYearlyClosesBySymbol("ntdoy.us")),
+    timedAsync("overlay:stooqNtdy", () => fetchStooqYearlyClosesBySymbol("ntdoy")),
     timedAsync("overlay:cpiYoY(fred+wb+csv)", () => fetchFredCpiYoYByYear(years)),
   ]);
-  const spMap = mergeYearlyMaps(spY, spS);
-  const btcMap = mergeYearlyMaps(btcY, btcS);
-  /** NTDOY only from Yahoo — Stooq OTC symbols (ntdoy.us, …) often return no rows. */
-  const ntMap = mergeYearlyMaps(ntY, new Map());
+  const spMap = spS;
+  const btcMap = btcS;
+  const ntMap = mergeYearlyMaps(ntUs, ntPlain);
   const spAligned = alignYearSeries(years, spMap);
   const btcAligned = alignYearSeries(years, btcMap);
   let ntAligned = alignYearSeries(years, ntMap);
-  /**
-   * NTDOY ADR can be empty/flat after Yahoo (blocked IP, sparse OTC). Tokyo listings restore shape.
-   * Use one source at a time (no mixing USD ADR with JPY in the same raw series).
-   */
-  if (!seriesHasVariance(ntAligned)) {
-    const jpMap = await timedAsync("overlay:yahoo7974.T", () => fetchYahooYearlyCloses("7974.T"));
-    ntAligned = alignYearSeries(years, jpMap);
-  }
+  /** NTDOY OTC can be sparse; Tokyo Stooq listing restores shape (single source, JPY→chart). */
   if (!seriesHasVariance(ntAligned)) {
     const stooqTokyo = await timedAsync("overlay:stooq7974.jp", () =>
       fetchStooqYearlyClosesBySymbol("7974.jp"),

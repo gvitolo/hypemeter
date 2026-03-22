@@ -1,5 +1,6 @@
 /**
- * Server-only timing for Vercel / Node logs. Helps find which step exceeds Hobby ~10s.
+ * Server-only timing: trace **steps inside one** route/serverless invocation (not separate Vercel functions).
+ * Labels map to `timedAsync` blocks in `page.tsx` / market libs → check the same Function’s runtime logs.
  *
  * - Set `DEBUG_PAGE_TIMING=1` (Vercel env) to log **every** section duration.
  * - Slow sections (default ≥ `warnMs`, default 10s) always log as `console.warn` so they show in production logs.
@@ -26,9 +27,9 @@ export async function timedAsync<T>(
   } finally {
     const ms = performance.now() - t0;
     const rounded = Math.round(ms);
-    const line = `[server-timing] ${label}: ${rounded}ms`;
+    const line = `${label} ${rounded}ms`;
     if (ms >= warnMs) {
-      console.warn(`⚠️ SLOW (≥${warnMs}ms) ${line}`);
+      console.warn(line);
     } else if (shouldLogAll()) {
       console.log(line);
     }
@@ -43,9 +44,9 @@ export async function timedAsyncWithMs<T>(label: string, fn: () => Promise<T>): 
   const result = await fn();
   const ms = performance.now() - t0;
   const rounded = Math.round(ms);
-  const line = `[server-timing] ${label}: ${rounded}ms`;
+  const line = `${label} ${rounded}ms`;
   if (ms >= DEFAULT_WARN_MS) {
-    console.warn(`⚠️ SLOW (≥${DEFAULT_WARN_MS}ms) ${line}`);
+    console.warn(line);
   } else if (shouldLogAll()) {
     console.log(line);
   }
@@ -55,9 +56,9 @@ export async function timedAsyncWithMs<T>(label: string, fn: () => Promise<T>): 
 /** Call once at end of a route handler for end-to-end wall time. */
 export function logTimingTotal(label: string, elapsedMs: number, warnMs: number = DEFAULT_WARN_MS): void {
   const rounded = Math.round(elapsedMs);
-  const line = `[server-timing] ${label}: ${rounded}ms`;
+  const line = `${label} ${rounded}ms`;
   if (elapsedMs >= warnMs) {
-    console.warn(`⚠️ SLOW (≥${warnMs}ms) ${line}`);
+    console.warn(line);
   } else if (shouldLogAll()) {
     console.log(line);
   }
