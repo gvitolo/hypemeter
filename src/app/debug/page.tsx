@@ -20,11 +20,19 @@ function isDebugTimingEnabled(): boolean {
   return process.env.ENABLE_DEBUG_TIMING_PAGE === "1";
 }
 
+/** Shown on /debug so you can tell if Vercel deployed the latest Git push (Settings → Git → Deployments). */
+function deployLabel(): string {
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA?.trim();
+  if (sha) return sha.slice(0, 7);
+  return "local-dev";
+}
+
 export default async function DebugPage() {
   const [cardHighlightPayload, cardTraderPayload] = await Promise.all([
     getCardHighlightImageDebugPayload(),
     getCardTraderJinaDebugPayload(),
   ]);
+  const ref = deployLabel();
 
   let timingBlock: ReactNode = null;
   if (isDebugTimingEnabled()) {
@@ -92,6 +100,19 @@ export default async function DebugPage() {
           <code className="rounded bg-slate-800 px-1">GET /api/debug/card-trader</code>
           ). Run <code className="rounded bg-slate-800 px-1">npm run debug:card</code> to save JSON to{" "}
           <code className="rounded bg-slate-800 px-1">last-card-debug.json</code>.
+        </p>
+        <p className="mt-3 rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-xs text-slate-400">
+          <span className="font-semibold text-slate-300">Deploy Git:</span>{" "}
+          <code className="text-cyan-300/90">{ref}</code>
+          {ref === "local-dev" ? (
+            <span className="text-slate-500"> — vedi qui i cambiamenti con </span>
+          ) : (
+            <span className="text-slate-500"> — se su Vercel questo non si aggiorna dopo un push, apri il progetto → </span>
+          )}
+          <span className="text-slate-500">
+            Deployments e verifica che l&apos;ultimo deploy sia da branch <code className="text-slate-300">main</code> del repo
+            collegato.
+          </span>
         </p>
 
         <section className="mt-8">
