@@ -318,7 +318,13 @@ function extractLiveEventSignals(items: NewsItem[], limit = 12) {
     .slice(0, limit);
 }
 
-function computeLiveSignalQuality(items: NewsItem[], eventSignalCount: number) {
+function computeLiveSignalQuality(args: {
+  items: NewsItem[];
+  eventSignalCount: number;
+  searchInterest: number;
+  components: SignalComponent[];
+}) {
+  const { items, eventSignalCount, searchInterest, components } = args;
   if (items.length === 0) return 0;
   const sourceCounts = new Map<string, number>();
   for (const item of items) {
@@ -333,7 +339,65 @@ function computeLiveSignalQuality(items: NewsItem[], eventSignalCount: number) {
   const coverage = Math.max(0, Math.min(1, Math.log10(headlineCount + 1) / Math.log10(36)));
   const sourceSpread = Math.max(0, Math.min(1, (uniqueSources - 1) / 10));
   const eventDensity = Math.max(0, Math.min(1, eventSignalCount / 10));
-  const raw = coverage * 0.35 + sourceSpread * 0.4 + eventDensity * 0.25;
+  const socialBuckets = [
+    { label: "reddit", count: 0 },
+    { label: "youtube", count: 0 },
+    { label: "facebook", count: 0 },
+    { label: "official", count: 0 },
+  ];
+  for (const item of items) {
+    const source = normalize(item.source || "");
+    if (source.includes("reddit")) socialBuckets[0].count += 1;
+    if (source.includes("youtube")) socialBuckets[1].count += 1;
+    if (source.includes("facebook")) socialBuckets[2].count += 1;
+    if (
+      source.includes("pokemon.com") ||
+      source.includes("the pokemon company") ||
+      source.includes("nintendo")
+    ) {
+      socialBuckets[3].count += 1;
+    }
+  }
+  const socialActive = socialBuckets.filter((bucket) => bucket.count > 0).length;
+  const socialPresence = Math.max(0, Math.min(1, socialActive / socialBuckets.length));
+  const totalSocialHits = socialBuckets.reduce((sum, bucket) => sum + bucket.count, 0);
+  const expectedPerBucket = totalSocialHits / Math.max(1, socialBuckets.length);
+  const socialImbalance =
+    totalSocialHits > 0
+      ? socialBuckets.reduce(
+          (sum, bucket) => sum + Math.abs(bucket.count - expectedPerBucket),
+          0,
+        ) /
+        Math.max(1, totalSocialHits * 1.2)
+      : 1;
+  const socialHarmony = Math.max(
+    0,
+    Math.min(1, socialPresence * 0.65 + (1 - Math.min(1, socialImbalance)) * 0.35),
+  );
+
+  // "Others" harmony: reward coherence among all core components (less contradictory spread).
+  const componentScores = components.map((component) => component.score);
+  const componentHarmony =
+    componentScores.length > 0
+      ? (() => {
+          const componentMean =
+            componentScores.reduce((sum, value) => sum + value, 0) / componentScores.length;
+          const componentVariance =
+            componentScores.reduce((sum, value) => sum + (value - componentMean) ** 2, 0) /
+            componentScores.length;
+          const componentStd = Math.sqrt(componentVariance);
+          return Math.max(0, Math.min(1, 1 - componentStd / 35));
+        })()
+      : 0.55;
+  const searchHealth = Math.max(0, Math.min(1, searchInterest / 100));
+
+  const raw =
+    coverage * 0.25 +
+    sourceSpread * 0.25 +
+    eventDensity * 0.18 +
+    socialHarmony * 0.18 +
+    componentHarmony * 0.09 +
+    searchHealth * 0.05;
   const penalty = Math.max(0, maxSourceShare - 0.5) * 0.65 + unknownShare * 0.8;
   return clampScore((raw - penalty) * 100);
 }
@@ -1261,7 +1325,12 @@ function buildTodayCalendarStats(items: NewsItem[], liveHypeScore: number): Cale
   );
 
   const eventSignals = extractLiveEventSignals(items, 8);
-  const signalQuality = computeLiveSignalQuality(items, eventSignals.length);
+  const signalQuality = computeLiveSignalQuality({
+    items,
+    eventSignalCount: eventSignals.length,
+    searchInterest: liveHypeScore,
+    components: [],
+  });
 
   return {
     date: today,
@@ -1437,7 +1506,12 @@ export default async function Home() {
   const history = buildBacktrackSeries(score);
   const todayCalendarStats = buildTodayCalendarStats(items.slice(0, 20), score);
   const liveEventSignals = extractLiveEventSignals(items);
-  const liveSignalQuality = computeLiveSignalQuality(items, liveEventSignals.length);
+  const liveSignalQuality = computeLiveSignalQuality({
+    items,
+    eventSignalCount: liveEventSignals.length,
+    searchInterest,
+    components: indicators,
+  });
   const topArticles = [...items]
     .sort((a, b) => scoreArticleRelevance(b) - scoreArticleRelevance(a))
     .slice(0, 10);
