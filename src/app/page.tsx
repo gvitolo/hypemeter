@@ -1247,16 +1247,6 @@ function summarizeHype(
   return { score, indicators: components, communityScore, marketScore };
 }
 
-// Translate numeric score into dashboard regime label and short interpretation.
-function labelForScore(score: number) {
-  if (score >= 90) return { label: "MANIA", vibe: "Demand pressure is extreme." };
-  if (score >= 75) return { label: "FRENZY", vibe: "Strong acceleration across signals." };
-  if (score >= 60) return { label: "HYPE", vibe: "Momentum is clearly above baseline." };
-  if (score >= 45) return { label: "WARM", vibe: "Constructive but selective strength." };
-  if (score >= 25) return { label: "CALM", vibe: "Balanced cycle, no major squeeze." };
-  return { label: "DEAD", vibe: "Low attention and low market pressure." };
-}
-
 function buildTraderNarrative(args: {
   score: number;
   signalQuality: number;
@@ -1357,7 +1347,6 @@ function computeWindowSentiments(args: {
       ? values.reduce((sum, value) => sum + value, 0) / values.length
       : 0;
   const last5 = avg(cycle30.slice(-5).map((y) => y.score));
-  const prev5 = avg(cycle30.slice(-10, -5).map((y) => y.score));
   const cycleSlope = last - prev;
 
   const component = (id: string) =>
@@ -1383,19 +1372,14 @@ function computeWindowSentiments(args: {
       socialPulseScore * 0.1,
   );
 
-  // 5Y is intentionally conservative and mildly below 1Y for realism.
-  const cycleRegimeShift = last5 - prev5;
-  const structuralDrag = Math.max(0, 55 - last5) * 0.18;
-  const downtrendPenalty = Math.max(0, -cycleRegimeShift) * 1.4;
-  const fiveYearRaw =
-    last5 * 0.43 +
-    marketScore * 0.22 +
-    score * 0.2 +
-    (50 + cycleRegimeShift * 2.6) * 0.1 -
-    4 -
-    structuralDrag -
-    downtrendPenalty;
-  const fiveYear = clampScore(Math.min(oneYear - 2, fiveYearRaw));
+  // 5Y: long-horizon blend (same scale as 1Y, no downward cap vs 1Y).
+  const fiveYear = clampScore(
+    score * 0.28 +
+      last5 * 0.34 +
+      marketScore * 0.2 +
+      communityScore * 0.1 +
+      socialPulseScore * 0.08,
+  );
 
   const windows: SentimentWindow[] = [
     {
@@ -1418,7 +1402,7 @@ function computeWindowSentiments(args: {
       score: fiveYear,
       tone: toneForSentiment(fiveYear),
       explanation:
-        "Long-cycle regime estimate with conservative risk bias versus the 1-year window.",
+        "Five-year timeline average blended with current market, community, and social pulse (no penalty vs 1Y).",
     },
   ];
   return windows;
@@ -2194,7 +2178,6 @@ export default async function Home() {
     cycle30,
     socialPulseScore: socialPulse.aggregateScore,
   });
-  const mood = labelForScore(score);
   const history = buildBacktrackSeries(score);
   const marketOverlay = await fetchMarketYearlyOverlay(history.map((h) => h.year));
   const todayCalendarStats = buildTodayCalendarStats(
@@ -2427,7 +2410,7 @@ export default async function Home() {
           <section className="grid min-w-0 items-stretch gap-6 lg:grid-cols-2">
           <div className="h-full rounded-3xl border border-white/10 bg-slate-900 p-6 hover-lift sm:p-7">
             {/* Score column + fixed-width semicircular gauge column (room for ticks + needle). */}
-            <div className="grid grid-cols-1 items-start gap-5 pb-8 min-[420px]:grid-cols-[minmax(0,1fr)_minmax(12.75rem,15.75rem)] min-[420px]:gap-x-6 min-[420px]:gap-y-3 min-[420px]:pb-10 lg:gap-x-10">
+            <div className="grid grid-cols-1 items-start gap-5 min-[420px]:grid-cols-[minmax(0,1fr)_minmax(12.75rem,15.75rem)] min-[420px]:gap-x-6 min-[420px]:gap-y-3 lg:gap-x-10">
               <div className="min-w-0 space-y-1 pr-0 sm:pr-1">
                 <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">
                   Current Hype
@@ -2444,10 +2427,7 @@ export default async function Home() {
                 </p>
               </div>
               <div className="mx-auto flex w-full min-w-0 shrink-0 justify-center pb-2 min-[420px]:mx-0 min-[420px]:justify-end min-[420px]:pb-3 min-[420px]:pt-0.5">
-                <HypeGauge
-                  score={score}
-                  insight={`Hover insight: ${mood.label.toLowerCase()} • ${Math.max(0, 100 - score)} pts to max hype`}
-                />
+                <HypeGauge score={score} />
               </div>
             </div>
             <div className="mt-4 h-4 overflow-hidden rounded-full bg-slate-700 sm:mt-5">

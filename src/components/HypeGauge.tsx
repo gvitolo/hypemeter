@@ -1,7 +1,5 @@
 type Props = {
   score: number;
-  /** Shown in hover tooltip */
-  insight: string;
 };
 
 const ZONES = [
@@ -33,7 +31,7 @@ function zoneIndex(score: number) {
 /**
  * Semicircular hype gauge (Fear-&-Greed style): zones + needle, compact for the Current Hype row.
  */
-export default function HypeGauge({ score, insight }: Props) {
+export default function HypeGauge({ score }: Props) {
   const s = Math.max(0, Math.min(100, score));
   const cx = 100;
   const cy = 100;
@@ -45,7 +43,7 @@ export default function HypeGauge({ score, insight }: Props) {
   const ticks = [0, 25, 50, 75, 100];
 
   return (
-    <div className="group relative flex w-full max-w-[15.5rem] flex-col items-center overflow-visible">
+    <div className="relative flex w-full max-w-[15.5rem] flex-col items-center">
       <svg
         viewBox="0 0 200 112"
         className="h-auto w-full shrink-0 drop-shadow-[0_0_20px_rgba(34,211,238,0.08)]"
@@ -112,9 +110,6 @@ export default function HypeGauge({ score, insight }: Props) {
       <p className="mt-1.5 text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
         {ZONES[zoneIndex(s)].label}
       </p>
-      <div className="pointer-events-none absolute -bottom-11 left-1/2 z-10 w-[min(100%,14rem)] -translate-x-1/2 rounded-lg border border-cyan-400/30 bg-slate-900/95 px-2 py-1 text-center text-[10px] text-cyan-200 opacity-0 shadow-lg shadow-cyan-950/40 transition-opacity duration-200 group-hover:opacity-100">
-        {insight}
-      </div>
     </div>
   );
 }
