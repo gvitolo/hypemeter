@@ -8,6 +8,35 @@ type NewsItem = {
 };
 
 const MAX_YEARS = 5;
+const EVENT_TOKENS: Array<{ pattern: RegExp; weight: number }> = [
+  { pattern: /\bpokemon direct\b/i, weight: 4.5 },
+  { pattern: /\bpok[eé]mon presents\b/i, weight: 4.2 },
+  { pattern: /\bdirect\b/i, weight: 2.4 },
+  { pattern: /\bpresents\b/i, weight: 2.1 },
+  { pattern: /\breveal|announc(e|ed|ement)|unveil|trailer\b/i, weight: 1.8 },
+  { pattern: /\brelease|launch|debut|premiere\b/i, weight: 1.6 },
+  { pattern: /\bexpansion|set list|new set|pre-?release\b/i, weight: 1.5 },
+  { pattern: /\bpok[eé]mon day|worlds|championship\b/i, weight: 2.2 },
+];
+
+const PRESSURE_TOKENS: Array<{ pattern: RegExp; weight: number }> = [
+  { pattern: /\bsold out|out of stock|sellout\b/i, weight: 2.4 },
+  { pattern: /\bpre-?order|queue|line\b/i, weight: 1.6 },
+  { pattern: /\ballocation|shortage|scarcity\b/i, weight: 1.9 },
+  { pattern: /\breprint|restock|supply\b/i, weight: 1.2 },
+];
+
+const POSITIVE_TOKENS: Array<{ pattern: RegExp; weight: number }> = [
+  { pattern: /\bhype|surge|boom|record|strong|rally\b/i, weight: 1.6 },
+  { pattern: /\bwin|popular|success|top|massive\b/i, weight: 1.2 },
+  { pattern: /\blove|excited|best|great\b/i, weight: 1.0 },
+];
+
+const NEGATIVE_TOKENS: Array<{ pattern: RegExp; weight: number }> = [
+  { pattern: /\bdelay|postpone|cancel\b/i, weight: 1.8 },
+  { pattern: /\bdrop|crash|slump|weak\b/i, weight: 1.6 },
+  { pattern: /\bbacklash|scam|lawsuit|problem\b/i, weight: 1.4 },
+];
 
 // Small XML helper to extract a single tag value from an <item> block.
 function readTag(itemXml: string, tag: string) {
@@ -52,6 +81,10 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function weightedTokenHits(text: string, tokens: Array<{ pattern: RegExp; weight: number }>) {
+  return tokens.reduce((sum, token) => sum + (token.pattern.test(text) ? token.weight : 0), 0);
+}
+
 // Ensure Google query date syntax uses UTC yyyy-mm-dd.
 function toIsoDate(value: Date) {
   return value.toISOString().slice(0, 10);
@@ -76,60 +109,54 @@ function validateDate(dateStr: string) {
 
 // Convert headline language into simple day-level market/sentiment metrics.
 function computeStats(items: NewsItem[]) {
-  const text = items.map((item) => item.title.toLowerCase()).join(" | ");
-  const eventHits = ["reveal", "release", "presents", "prerelease", "expansion"].reduce(
-    (sum, token) => sum + (text.includes(token) ? 1 : 0),
-    0,
-  );
-  const pressureHits = ["sold out", "preorder", "queue", "allocation", "reprint"].reduce(
-    (sum, token) => sum + (text.includes(token) ? 1 : 0),
-    0,
-  );
-  const positiveHits = ["hype", "surge", "launch", "strong", "record", "win"].reduce(
-    (sum, token) => sum + (text.includes(token) ? 1 : 0),
-    0,
-  );
-  const negativeHits = ["delay", "drop", "crash", "backlash", "scam", "lawsuit"].reduce(
-    (sum, token) => sum + (text.includes(token) ? 1 : 0),
-    0,
-  );
+  const titles = items.map((item) => item.title);
+  const text = titles.join(" | ");
+  const eventHits = weightedTokenHits(text, EVENT_TOKENS);
+  const pressureHits = weightedTokenHits(text, PRESSURE_TOKENS);
+  const positiveHits = weightedTokenHits(text, POSITIVE_TOKENS);
+  const negativeHits = weightedTokenHits(text, NEGATIVE_TOKENS);
 
   const headlineCount = items.length;
   const uniqueSources = new Set(items.map((item) => item.source)).size;
-  const sentiment = clamp(
-    Math.round(50 + (positiveHits - negativeHits) * 8 + Math.log10(headlineCount + 1) * 12),
+  const attentionScore = clamp(
+    (Math.log10(headlineCount + 1) / Math.log10(26)) * 72 + (uniqueSources / 12) * 28,
+    0,
+    100,
+  );
+  const eventCatalystScore = clamp(eventHits * 12.5, 0, 100);
+  const availabilityPressureScore = clamp(pressureHits * 14 + Math.log10(headlineCount + 1) * 7, 0, 100);
+  const productStressScore = clamp(pressureHits * 17 + Math.max(0, negativeHits - positiveHits) * 4.5, 0, 100);
+  const communitySentimentScore = clamp(
+    50 + (positiveHits - negativeHits) * 6 + Math.log10(headlineCount + 1) * 8,
+    0,
+    100,
+  );
+  const marketMomentumProxyScore = clamp(
+    50 + (positiveHits - negativeHits) * 4 + eventCatalystScore * 0.22 - productStressScore * 0.1,
     0,
     100,
   );
 
-  // Normalize each signal so score does not explode with raw headline count.
-  const headlineIntensity = clamp(
-    Math.round((Math.log10(headlineCount + 1) / Math.log10(26)) * 100),
-    0,
-    100,
-  );
-  const sourceDiversity = clamp(Math.round((uniqueSources / 12) * 100), 0, 100);
-  const eventIntensity = clamp(eventHits * 24, 0, 100);
-  const pressureIntensity = clamp(pressureHits * 22, 0, 100);
-
-  // Weighted blend tuned to keep "normal days" in a realistic mid range.
+  // Same 6-component weighting philosophy used by the main hype meter.
   const dayScore = clamp(
     Math.round(
-      headlineIntensity * 0.35 +
-        sourceDiversity * 0.2 +
-        eventIntensity * 0.2 +
-        pressureIntensity * 0.15 +
-        sentiment * 0.1,
+      attentionScore * 0.2 +
+        marketMomentumProxyScore * 0.25 +
+        availabilityPressureScore * 0.2 +
+        eventCatalystScore * 0.15 +
+        communitySentimentScore * 0.1 +
+        productStressScore * 0.1,
     ),
     0,
     100,
   );
+  const sentiment = Math.round(communitySentimentScore);
 
   return {
     headlineCount,
     uniqueSources,
-    eventHits,
-    pressureHits,
+    eventHits: Math.round(eventHits),
+    pressureHits: Math.round(pressureHits),
     sentiment,
     dayScore,
   };
