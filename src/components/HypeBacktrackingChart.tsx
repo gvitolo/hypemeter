@@ -80,7 +80,8 @@ export default function HypeBacktrackingChart({
 }: Props) {
   // SVG dimensions and drawing paddings for stable scaling across breakpoints.
   const chartWidth = 940;
-  const chartHeight = 250;
+  /** Taller plot area so the chart column matches Market Sidecar height on large screens. */
+  const chartHeight = 340;
   const padX = 20;
   const padY = 18;
   const safeWidth = chartWidth - padX * 2;
@@ -149,8 +150,8 @@ export default function HypeBacktrackingChart({
   }, [highlightSeries]);
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 px-3 pt-3 pb-2">
-      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950 px-3 pt-3 pb-2">
+      <div className="mb-3 grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="flex min-h-[4.75rem] flex-col justify-center rounded-lg border border-white/10 bg-slate-900 p-2">
           <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">selected</p>
           <p className="mt-1 min-h-[1.375rem] text-sm font-semibold tabular-nums leading-none text-cyan-300">
@@ -179,7 +180,12 @@ export default function HypeBacktrackingChart({
         </div>
       </div>
 
-      <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full">
+      <div className="relative min-h-[220px] w-full flex-1 sm:min-h-[260px] lg:min-h-0">
+        <svg
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          className="h-full w-full min-h-[220px] sm:min-h-[260px] lg:h-full lg:min-h-[280px]"
+          preserveAspectRatio="xMidYMid meet"
+        >
         {[20, 40, 60, 80].map((tick) => {
           const y = 18 + ((100 - tick) / 100) * (chartHeight - 36);
           return (
@@ -329,15 +335,16 @@ export default function HypeBacktrackingChart({
           </>
         ) : null}
       </svg>
+      </div>
 
-      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+      <div className="mt-1.5 flex shrink-0 flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
         <span>{history[0]?.year}</span>
         <span>{history[Math.floor(history.length / 4)]?.year}</span>
         <span>{history[Math.floor(history.length / 2)]?.year}</span>
         <span>{history[Math.floor((history.length * 3) / 4)]?.year}</span>
         <span>{history[history.length - 1]?.year}</span>
       </div>
-      <p className="mt-1 text-[11px] leading-snug text-slate-500">
+      <p className="mt-1 shrink-0 text-[11px] leading-snug text-slate-500">
         Hover across the chart to inspect each year.{" "}
         <span className="text-fuchsia-300/90">Fuchsia dots</span> = local peaks on the hype score (same line as the
         cyan streamline).

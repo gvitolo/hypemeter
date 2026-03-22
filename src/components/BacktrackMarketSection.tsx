@@ -48,8 +48,8 @@ export default function BacktrackMarketSection({
           First year: {history[0]?.year} • Latest: {history[history.length - 1]?.year}
         </p>
       </div>
-      <div className="mt-4 grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,0.7fr)]">
-        <div className="min-w-0 self-start">
+      <div className="mt-4 grid min-w-0 items-stretch gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,0.7fr)]">
+        <div className="flex h-full min-h-0 min-w-0 flex-col">
           <HypeBacktrackingChart
             history={history}
             events={events}
@@ -57,7 +57,7 @@ export default function BacktrackMarketSection({
             highlightSeries={highlight}
           />
         </div>
-        <aside className="relative min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-4 hover-lift">
+        <aside className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-4 hover-lift">
           <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Market Sidecar</p>
 
           <div className="mt-4 space-y-3">

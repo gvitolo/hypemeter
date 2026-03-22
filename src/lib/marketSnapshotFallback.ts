@@ -1,12 +1,13 @@
 import type { MarketSnapshot } from "@/lib/marketSnapshot";
 
 /**
- * Optional static numbers for demos only. **Not** applied in production by default — filling nulls
- * with stale constants made the sidecar look “frozen” vs finance.yahoo.com.
+ * Optional static numbers for **local demos only**. Never used on Vercel production — baked-in
+ * prices were mistaken for “live” Yahoo data when APIs failed.
  *
- * - Default: no static fill (nulls stay null → UI shows N/A).
- * - `MARKET_SNAPSHOT_STATIC_FALLBACK=1` — fill nulls from {@link MARKET_SNAPSHOT_PAGE_FALLBACK}.
- * - `DISABLE_MARKET_SNAPSHOT_FALLBACK=1` — same as default (explicit opt-out of static fill).
+ * - **Production** (`VERCEL_ENV=production` or `NODE_ENV=production`): static fill is **disabled**
+ *   regardless of env vars (prevents accidental `MARKET_SNAPSHOT_STATIC_FALLBACK=1` on Vercel).
+ * - **Local dev**: `MARKET_SNAPSHOT_STATIC_FALLBACK=1` — fill nulls from {@link MARKET_SNAPSHOT_PAGE_FALLBACK}.
+ * - `DISABLE_MARKET_SNAPSHOT_FALLBACK=1` — skip static fill in dev too.
  */
 export const MARKET_SNAPSHOT_PAGE_FALLBACK: MarketSnapshot = {
   sp500: 6506.48,
@@ -27,12 +28,23 @@ function stampNow(): string {
   });
 }
 
+/** Any Vercel deploy or production Node — demo constants must never mask failed Yahoo fetches. */
+function isProductionContext(): boolean {
+  return (
+    process.env.VERCEL === "1" ||
+    process.env.NODE_ENV === "production"
+  );
+}
+
 /**
- * Fills any null numeric fields from {@link MARKET_SNAPSHOT_PAGE_FALLBACK}.
+ * Fills any null numeric fields from {@link MARKET_SNAPSHOT_PAGE_FALLBACK} (non-production only).
  * Preserves live values when present. Sets `updatedAt` if it was null.
  */
 export function applyMarketSnapshotFallback(snapshot: MarketSnapshot): MarketSnapshot {
   if (process.env.DISABLE_MARKET_SNAPSHOT_FALLBACK === "1") {
+    return snapshot;
+  }
+  if (isProductionContext()) {
     return snapshot;
   }
   if (process.env.MARKET_SNAPSHOT_STATIC_FALLBACK !== "1") {
