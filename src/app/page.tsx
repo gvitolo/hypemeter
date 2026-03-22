@@ -8,6 +8,7 @@ type NewsItem = {
   link: string;
   pubDate: string;
   source: string;
+  summary: string;
 };
 
 type SignalComponent = {
@@ -81,6 +82,7 @@ type PokemonOfDayArticle = {
   title: string;
   link: string;
   source: string;
+  summary: string;
 };
 
 // Revalidate the server-rendered homepage every 30 minutes.
@@ -214,11 +216,12 @@ function parseNews(xml: string): NewsItem[] {
     const title = decodeHtml(readTag(block, "title"));
     const link = decodeHtml(readTag(block, "link"));
     const pubDate = decodeHtml(readTag(block, "pubDate"));
+    const summary = decodeHtml(readTag(block, "description"));
     const sourceTag = decodeHtml(readTag(block, "source"));
     const source = sourceTag || extractSourceFromTitle(title);
 
     if (title && link) {
-      items.push({ title, link, pubDate, source });
+      items.push({ title, link, pubDate, source, summary });
     }
     match = itemRegex.exec(xml);
   }
@@ -229,6 +232,10 @@ function parseNews(xml: string): NewsItem[] {
 
 function normalize(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function extractLiveEventSignals(items: NewsItem[], limit = 12) {
@@ -877,6 +884,43 @@ function sourceQuality(source: string) {
   return 0;
 }
 
+function normalizePokemonToken(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+async function fetchPokemonNameCatalog() {
+  try {
+    const res = await fetch("https://pokeapi.co/api/v2/pokemon?limit=2000", {
+      next: { revalidate: 86400 },
+    });
+    if (!res.ok) return [] as string[];
+    const payload = (await res.json()) as { results?: Array<{ name?: string }> };
+    return (payload.results ?? []).map((entry) => entry.name ?? "").filter(Boolean);
+  } catch {
+    return [] as string[];
+  }
+}
+
+function findPokemonNameMatchInText(articleText: string, names: string[]) {
+  const text = normalizePokemonToken(articleText);
+  if (!text) return null;
+
+  let winner: { name: string; index: number; len: number } | null = null;
+  for (const name of names) {
+    const normalizedName = normalizePokemonToken(name.replace(/-/g, " "));
+    if (!normalizedName) continue;
+    const regex = new RegExp(`(^|\\s)${escapeRegex(normalizedName)}(?=\\s|$)`);
+    const match = text.match(regex);
+    if (!match || match.index === undefined) continue;
+    const index = match.index;
+    const len = normalizedName.length;
+    if (!winner || index < winner.index || (index === winner.index && len > winner.len)) {
+      winner = { name, index, len };
+    }
+  }
+  return winner?.name ?? null;
+}
+
 async function fetchPokemonByIdentifier(identifier: string | number): Promise<PokemonOfDay | null> {
   const url = `https://pokeapi.co/api/v2/pokemon/${identifier}`;
   try {
@@ -931,7 +975,7 @@ function pickArticleOfDay(items: NewsItem[]): PokemonOfDayArticle | null {
 
   const best = ranked[0]?.item;
   if (!best) return null;
-  return { title: best.title, link: best.link, source: best.source };
+  return { title: best.title, link: best.link, source: best.source, summary: best.summary };
 }
 
 function hashStringToRange(input: string, min: number, max: number) {
@@ -989,7 +1033,15 @@ function buildPokemonCandidateNamesFromTitle(title: string) {
 async function pickPokemonOfDayFromArticle(article: PokemonOfDayArticle | null) {
   if (!article) return null;
 
-  const candidates = buildPokemonCandidateNamesFromTitle(article.title);
+  const catalog = await fetchPokemonNameCatalog();
+  const articleText = `${article.title} ${article.summary}`;
+  const exactMatch = findPokemonNameMatchInText(articleText, catalog);
+  if (exactMatch) {
+    const matched = await fetchPokemonByIdentifier(exactMatch);
+    if (matched) return matched;
+  }
+
+  const candidates = buildPokemonCandidateNamesFromTitle(articleText);
   for (const candidate of candidates) {
     const pokemon = await fetchPokemonByIdentifier(candidate);
     if (pokemon) return pokemon;
