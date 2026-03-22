@@ -83,6 +83,7 @@ type PokemonOfDayArticle = {
   link: string;
   source: string;
   summary: string;
+  pokemonMentions: string[];
 };
 
 // Revalidate the server-rendered homepage every 30 minutes.
@@ -1073,6 +1074,16 @@ function rankPokemonMatchesFromSources(
     .sort((a, b) => b.score - a.score || a.firstIndex - b.firstIndex);
 }
 
+function extractPokemonMentionsFromText(
+  sources: Array<{ text: string; weight: number }>,
+  names: string[],
+  max = 8,
+) {
+  return rankPokemonMatchesFromSources(sources, names)
+    .map((entry) => entry.name)
+    .slice(0, max);
+}
+
 async function fetchPokemonByIdentifier(identifier: string | number): Promise<PokemonOfDay | null> {
   const url = `https://pokeapi.co/api/v2/pokemon/${identifier}`;
   try {
@@ -1105,17 +1116,35 @@ async function fetchPokemonByIdentifier(identifier: string | number): Promise<Po
   }
 }
 
-function pickArticleOfDay(items: NewsItem[]): PokemonOfDayArticle | null {
+function pickArticleOfDay(items: NewsItem[], pokemonCatalog: string[]): PokemonOfDayArticle | null {
   if (items.length === 0) return null;
   const ranked = items
     .map((item) => {
-      return { item, score: scoreArticleRelevance(item) };
+      const mentions = extractPokemonMentionsFromText(
+        [
+          { text: item.title, weight: 2.5 },
+          { text: item.summary, weight: 1.6 },
+        ],
+        pokemonCatalog,
+        6,
+      );
+      const mentionBoost = mentions.length > 0 ? 8 + Math.min(8, mentions.length * 3) : 0;
+      return { item, score: scoreArticleRelevance(item) + mentionBoost, mentions };
     })
     .sort((a, b) => b.score - a.score);
 
-  const best = ranked[0]?.item;
+  const best = ranked[0];
+  const bestItem = best?.item;
+  const mentions = best?.mentions ?? [];
+  if (!bestItem) return null;
   if (!best) return null;
-  return { title: best.title, link: best.link, source: best.source, summary: best.summary };
+  return {
+    title: bestItem.title,
+    link: bestItem.link,
+    source: bestItem.source,
+    summary: bestItem.summary,
+    pokemonMentions: mentions,
+  };
 }
 
 function hashStringToRange(input: string, min: number, max: number) {
@@ -1170,10 +1199,14 @@ function buildPokemonCandidateNamesFromTitle(title: string) {
   return Array.from(candidates).slice(0, 12);
 }
 
-async function pickPokemonOfDayFromArticle(article: PokemonOfDayArticle | null) {
+async function pickPokemonOfDayFromArticle(article: PokemonOfDayArticle | null, pokemonCatalog: string[]) {
   if (!article) return null;
 
-  const catalog = await fetchPokemonNameCatalog();
+  for (const mention of article.pokemonMentions) {
+    const matched = await fetchPokemonByIdentifier(mention);
+    if (matched) return matched;
+  }
+
   const articlePageText = await fetchArticleTextForPokemonMatching(article.link);
   const articleText = `${article.title} ${article.summary} ${articlePageText}`;
   const rankedMatches = rankPokemonMatchesFromSources(
@@ -1182,9 +1215,9 @@ async function pickPokemonOfDayFromArticle(article: PokemonOfDayArticle | null) 
       { text: article.summary, weight: 1.4 },
       { text: articlePageText, weight: 1.8 },
     ],
-    catalog,
+    pokemonCatalog,
   );
-  const exactMatch = rankedMatches[0]?.name ?? findPokemonNameMatchInText(articleText, catalog);
+  const exactMatch = rankedMatches[0]?.name ?? findPokemonNameMatchInText(articleText, pokemonCatalog);
   if (exactMatch) {
     const matched = await fetchPokemonByIdentifier(exactMatch);
     if (matched) return matched;
@@ -1197,7 +1230,7 @@ async function pickPokemonOfDayFromArticle(article: PokemonOfDayArticle | null) 
   }
 
   // Guaranteed fallback still tied to the article itself.
-  const fallbackId = hashStringToRange(article.title, 1, 1025);
+  const fallbackId = hashStringToRange(`${article.title}|${article.link}`, 1, 1025);
   return fetchPokemonByIdentifier(fallbackId);
 }
 
@@ -1508,8 +1541,9 @@ export default async function Home() {
       accent: "from-fuchsia-400 to-purple-500",
     },
   ];
-  const pokemonOfDayArticle = pickArticleOfDay(items);
-  const pokemonOfDay = await pickPokemonOfDayFromArticle(pokemonOfDayArticle);
+  const pokemonCatalog = await fetchPokemonNameCatalog();
+  const pokemonOfDayArticle = pickArticleOfDay(items, pokemonCatalog);
+  const pokemonOfDay = await pickPokemonOfDayFromArticle(pokemonOfDayArticle, pokemonCatalog);
 
   // Single timestamp used as visible "last refreshed" marker in header.
   const updatedAt = new Date().toLocaleString("en-US", {
