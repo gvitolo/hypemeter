@@ -983,6 +983,63 @@ function findPokemonNameMatchInText(articleText: string, names: string[]) {
   return winner?.name ?? null;
 }
 
+async function fetchArticleTextForPokemonMatching(url: string) {
+  try {
+    const res = await fetch(url, {
+      next: { revalidate: 1800 },
+      headers: { "user-agent": "Mozilla/5.0 hypemeter" },
+    });
+    if (!res.ok) return "";
+    const html = await res.text();
+    if (!html) return "";
+    const sanitized = html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ");
+    const plain = decodeHtml(sanitized).replace(/\s+/g, " ").trim();
+    return plain.slice(0, 18000);
+  } catch {
+    return "";
+  }
+}
+
+function rankPokemonMatchesFromSources(
+  sources: Array<{ text: string; weight: number }>,
+  names: string[],
+) {
+  const scored = new Map<string, { score: number; firstIndex: number }>();
+
+  for (const source of sources) {
+    const text = normalizePokemonToken(source.text);
+    if (!text) continue;
+
+    for (const name of names) {
+      const normalizedName = normalizePokemonToken(name.replace(/-/g, " "));
+      if (!normalizedName) continue;
+      const regex = new RegExp(`(^|\\s)${escapeRegex(normalizedName)}(?=\\s|$)`, "g");
+      let hits = 0;
+      let first = -1;
+      let match = regex.exec(text);
+      while (match) {
+        hits += 1;
+        if (first < 0) first = match.index;
+        if (hits >= 5) break;
+        match = regex.exec(text);
+      }
+      if (hits === 0) continue;
+
+      const existing = scored.get(name) ?? { score: 0, firstIndex: first };
+      existing.score += hits * source.weight;
+      existing.firstIndex =
+        existing.firstIndex < 0 ? first : first < 0 ? existing.firstIndex : Math.min(existing.firstIndex, first);
+      scored.set(name, existing);
+    }
+  }
+
+  return Array.from(scored.entries())
+    .map(([name, stats]) => ({ name, ...stats }))
+    .sort((a, b) => b.score - a.score || a.firstIndex - b.firstIndex);
+}
+
 async function fetchPokemonByIdentifier(identifier: string | number): Promise<PokemonOfDay | null> {
   const url = `https://pokeapi.co/api/v2/pokemon/${identifier}`;
   try {
@@ -1096,8 +1153,17 @@ async function pickPokemonOfDayFromArticle(article: PokemonOfDayArticle | null) 
   if (!article) return null;
 
   const catalog = await fetchPokemonNameCatalog();
-  const articleText = `${article.title} ${article.summary}`;
-  const exactMatch = findPokemonNameMatchInText(articleText, catalog);
+  const articlePageText = await fetchArticleTextForPokemonMatching(article.link);
+  const articleText = `${article.title} ${article.summary} ${articlePageText}`;
+  const rankedMatches = rankPokemonMatchesFromSources(
+    [
+      { text: article.title, weight: 2.4 },
+      { text: article.summary, weight: 1.4 },
+      { text: articlePageText, weight: 1.8 },
+    ],
+    catalog,
+  );
+  const exactMatch = rankedMatches[0]?.name ?? findPokemonNameMatchInText(articleText, catalog);
   if (exactMatch) {
     const matched = await fetchPokemonByIdentifier(exactMatch);
     if (matched) return matched;
