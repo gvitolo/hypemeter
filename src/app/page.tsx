@@ -94,6 +94,9 @@ type CardTraderBestSeller = {
 // Always render dynamically so the market sidecar (and other live fetches) never come from stale ISR HTML.
 export const dynamic = "force-dynamic";
 
+/** Enough wall time for parallel RSS + Yahoo/Stooq/FRED on cold start (Vercel serverless). */
+export const maxDuration = 60;
+
 // Curated Google News query tuned for Pokemon relevance and noise reduction.
 const NEWS_QUERY = encodeURIComponent(
   '("Pokemon" OR "Pokémon" OR "Pokemon GO" OR Nintendo) (game OR update OR event OR trailer OR release) -site:hotelier.com.py -site:propertyroom.com',

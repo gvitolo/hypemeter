@@ -22,6 +22,16 @@ type YearlyCloseMap = Map<number, number>;
 const STOOQ_HIST_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
+/** Avoid hanging SSR if Yahoo / Stooq / FRED never answer (Vercel would 504 otherwise). */
+const EXTERNAL_FETCH_TIMEOUT_MS = 12_000;
+
+function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS),
+  });
+}
+
 /** Last trading close per calendar year from Stooq daily CSV (header must include Date + Close). */
 export function parseStooqDailyHistoryToYearlyLastClose(csv: string): YearlyCloseMap {
   const map: YearlyCloseMap = new Map();
@@ -126,7 +136,7 @@ export function buildCpiYoYPercentByYearFromMonthlyRows(monthly: CpiMonthRow[]):
 async function fetchFredCpiYoYByYear(): Promise<Map<number, number>> {
   try {
     const url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL";
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       next: { revalidate: 86400 },
       headers: { "user-agent": STOOQ_HIST_UA },
     });
@@ -144,7 +154,7 @@ async function fetchStooqYearlyClosesBySymbol(stooqSymbol: string): Promise<Year
     const d1 = "20050101";
     const d2 = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const url = `https://stooq.com/q/d/l/?s=${encodeURIComponent(stooqSymbol)}&d1=${d1}&d2=${d2}&i=d`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       next: { revalidate: 86400 },
       headers: { "user-agent": STOOQ_HIST_UA },
     });
@@ -161,7 +171,7 @@ export async function fetchYahooYearlyCloses(symbol: string): Promise<YearlyClos
   try {
     const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1mo&range=max`;
     // Monthly historical series — not intraday; cache aggressively (aligns with “delayed” quote pages).
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       next: { revalidate: 86400 },
       headers: { "user-agent": YAHOO_CHART_UA },
     });
