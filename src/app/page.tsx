@@ -2311,7 +2311,6 @@ export default async function Home() {
             marketOverlay={marketOverlay}
             market={market}
             deploymentSha={process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null}
-            pageRevalidateSeconds={revalidate}
           />
         </ScrollReveal>
 

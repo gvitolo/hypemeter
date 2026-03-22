@@ -27,8 +27,6 @@ type Props = {
   market: MarketSnap;
   /** First 7 chars of VERCEL_GIT_COMMIT_SHA — confirms which build is live. */
   deploymentSha?: string | null;
-  /** Matches `export const revalidate` on the homepage (seconds). */
-  pageRevalidateSeconds?: number;
 };
 
 export default function BacktrackMarketSection({
@@ -37,7 +35,6 @@ export default function BacktrackMarketSection({
   marketOverlay,
   market,
   deploymentSha,
-  pageRevalidateSeconds = 300,
 }: Props) {
   const [highlight, setHighlight] = useState<MarketHighlightKey | null>(null);
 
@@ -132,42 +129,8 @@ export default function BacktrackMarketSection({
             </a>
           </div>
 
-          <p className="mt-4 text-[11px] text-slate-500">
-            S&amp;P 500 and Bitcoin levels/% vs prior close follow{" "}
-            <a
-              href="https://finance.yahoo.com/quote/%5EGSPC/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-cyan-400/90 underline-offset-2 hover:underline"
-            >
-              Yahoo ^GSPC
-            </a>{" "}
-            and{" "}
-            <a
-              href="https://finance.yahoo.com/quote/BTC-USD/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-cyan-400/90 underline-offset-2 hover:underline"
-            >
-              BTC-USD
-            </a>{" "}
-            (same API as the site; can be delayed). Nintendo matches{" "}
-            <a
-              href="https://finance.yahoo.com/quote/NTDOY/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-cyan-400/90 underline-offset-2 hover:underline"
-            >
-              Yahoo NTDOY
-            </a>{" "}
-            (OTC can be delayed). Chart overlay is monthly; if Yahoo fails, price fallbacks: Stooq (indices) /
-            CoinGecko (BTC)—% may be omitted for BTC without Yahoo.
-          </p>
-          <p className="mt-1 text-[11px] text-slate-500">
-            Last market update: {market.updatedAt ?? "Unavailable"}
-          </p>
-          <p className="mt-1 font-mono text-[10px] text-slate-600">
-            Build {deploymentSha ?? "local"} · page cache ~{Math.round(pageRevalidateSeconds / 60)}m
+          <p className="mt-3 text-[10px] leading-tight text-slate-600">
+            {market.updatedAt ?? "—"} · {deploymentSha ?? "local"}
           </p>
         </aside>
       </div>
