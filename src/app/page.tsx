@@ -17,10 +17,18 @@ type YearScore = {
   score: number;
 };
 
+type MarketSnapshot = {
+  sp500: number | null;
+  bitcoin: number | null;
+  updatedAt: string | null;
+};
+
 export const revalidate = 1800;
 
 const NEWS_URL =
   "https://news.google.com/rss/search?q=Pokemon&hl=en-US&gl=US&ceid=US:en";
+const MARKET_QUOTES_URL =
+  "https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EGSPC,BTC-USD";
 
 const positiveKeywords = [
   "announced",
@@ -244,6 +252,69 @@ function computeChartPoints(series: YearScore[], width: number, height: number) 
   });
 }
 
+function formatUsd(value: number | null) {
+  if (value === null || Number.isNaN(value)) {
+    return "N/A";
+  }
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
+  const fallback: MarketSnapshot = {
+    sp500: null,
+    bitcoin: null,
+    updatedAt: null,
+  };
+
+  try {
+    const response = await fetch(MARKET_QUOTES_URL, {
+      next: { revalidate: 300 },
+      headers: {
+        "user-agent": "Mozilla/5.0 hypemeter",
+      },
+    });
+    if (!response.ok) {
+      return fallback;
+    }
+
+    const data = (await response.json()) as {
+      quoteResponse?: {
+        result?: Array<{
+          symbol?: string;
+          regularMarketPrice?: number;
+          regularMarketTime?: number;
+        }>;
+      };
+    };
+
+    const result = data.quoteResponse?.result ?? [];
+    const sp500 = result.find((entry) => entry.symbol === "^GSPC");
+    const bitcoin = result.find((entry) => entry.symbol === "BTC-USD");
+    const latestEpoch = Math.max(
+      sp500?.regularMarketTime ?? 0,
+      bitcoin?.regularMarketTime ?? 0,
+    );
+
+    return {
+      sp500: sp500?.regularMarketPrice ?? null,
+      bitcoin: bitcoin?.regularMarketPrice ?? null,
+      updatedAt:
+        latestEpoch > 0
+          ? new Date(latestEpoch * 1000).toLocaleString("en-US", {
+              dateStyle: "medium",
+              timeStyle: "short",
+            })
+          : null,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 export default async function Home() {
   let items: NewsItem[] = [];
   try {
@@ -262,6 +333,7 @@ export default async function Home() {
   }
 
   const { score, indicators } = summarizeHype(items);
+  const market = await fetchMarketSnapshot();
   const mood = labelForScore(score);
   const history = buildBacktrackSeries(score);
   const chartWidth = 940;
@@ -361,45 +433,83 @@ export default async function Home() {
               {history[history.length - 1]?.year}
             </p>
           </div>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-3">
-            <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full">
-              {[20, 40, 60, 80].map((tick) => {
-                const y = 18 + ((100 - tick) / 100) * (chartHeight - 36);
-                return (
-                  <line
-                    key={tick}
-                    x1="20"
-                    x2={chartWidth - 20}
-                    y1={y}
-                    y2={y}
-                    stroke="rgba(148, 163, 184, 0.2)"
-                    strokeDasharray="4 4"
-                  />
-                );
-              })}
-              <polyline
-                fill="none"
-                stroke="rgba(34, 211, 238, 0.9)"
-                strokeWidth="4"
-                points={polyline}
-              />
-              {points.map((point) => (
-                <circle
-                  key={point.year}
-                  cx={point.x}
-                  cy={point.y}
-                  r={point.year % 5 === 0 ? 4.5 : 3}
-                  fill={point.year === history[history.length - 1].year ? "#f472b6" : "#22d3ee"}
+          <div className="mt-4 grid gap-4 lg:grid-cols-[1.5fr_0.7fr]">
+            <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950 p-3">
+              <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="w-full">
+                {[20, 40, 60, 80].map((tick) => {
+                  const y = 18 + ((100 - tick) / 100) * (chartHeight - 36);
+                  return (
+                    <line
+                      key={tick}
+                      x1="20"
+                      x2={chartWidth - 20}
+                      y1={y}
+                      y2={y}
+                      stroke="rgba(148, 163, 184, 0.2)"
+                      strokeDasharray="4 4"
+                    />
+                  );
+                })}
+                <polyline
+                  fill="none"
+                  stroke="rgba(34, 211, 238, 0.9)"
+                  strokeWidth="4"
+                  points={polyline}
                 />
-              ))}
-            </svg>
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-              <span>{history[0]?.year}</span>
-              <span>{history[Math.floor(history.length / 4)]?.year}</span>
-              <span>{history[Math.floor(history.length / 2)]?.year}</span>
-              <span>{history[Math.floor((history.length * 3) / 4)]?.year}</span>
-              <span>{history[history.length - 1]?.year}</span>
+                {points.map((point) => (
+                  <circle
+                    key={point.year}
+                    cx={point.x}
+                    cy={point.y}
+                    r={point.year % 5 === 0 ? 4.5 : 3}
+                    fill={
+                      point.year === history[history.length - 1].year
+                        ? "#f472b6"
+                        : "#22d3ee"
+                    }
+                  />
+                ))}
+              </svg>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                <span>{history[0]?.year}</span>
+                <span>{history[Math.floor(history.length / 4)]?.year}</span>
+                <span>{history[Math.floor(history.length / 2)]?.year}</span>
+                <span>{history[Math.floor((history.length * 3) / 4)]?.year}</span>
+                <span>{history[history.length - 1]?.year}</span>
+              </div>
             </div>
+            <aside className="rounded-2xl border border-white/10 bg-slate-950 p-4">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                Market Sidecar
+              </p>
+              <p className="mt-1 text-xs text-slate-500">USD quotes</p>
+
+              <div className="mt-4 space-y-3">
+                <div className="rounded-xl border border-white/10 bg-slate-900 p-3">
+                  <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
+                    S&P 500
+                  </p>
+                  <p className="mt-1 text-2xl font-bold text-cyan-300">
+                    {formatUsd(market.sp500)}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-slate-900 p-3">
+                  <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
+                    Bitcoin
+                  </p>
+                  <p className="mt-1 text-2xl font-bold text-amber-300">
+                    {formatUsd(market.bitcoin)}
+                  </p>
+                </div>
+              </div>
+
+              <p className="mt-4 text-[11px] text-slate-500">
+                Source: Yahoo Finance quote API
+              </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Last market update: {market.updatedAt ?? "Unavailable"}
+              </p>
+            </aside>
           </div>
         </section>
 
