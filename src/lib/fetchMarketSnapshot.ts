@@ -223,6 +223,11 @@ function btcIncomplete(bitcoin: number | null, bitcoinGrowthPct: number | null) 
   return bitcoin === null || bitcoinGrowthPct === null;
 }
 
+function withinRelativeDiff(a: number, b: number, maxRatio: number): boolean {
+  if (!(a > 0) || !(b > 0)) return false;
+  return Math.abs(a - b) / b <= maxRatio;
+}
+
 /** Stooq ^spx daily last-two → intraday line → retry daily. */
 async function resolveSp500Metrics(spx: {
   close: number | null;
@@ -232,25 +237,30 @@ async function resolveSp500Metrics(spx: {
   sp500GrowthPct: number | null;
   sp500Source: Sp500QuoteSource | null;
 }> {
-  const stooqDailyFirst = await fetchSp500StooqDailyLastTwo();
-  if (stooqDailyFirst) {
-    return {
-      sp500: stooqDailyFirst.price,
-      sp500GrowthPct: stooqDailyFirst.growthPct,
-      sp500Source: "stooq-daily",
-    };
-  }
-
+  const stooqDaily = await fetchSp500StooqDailyLastTwo();
   let { sp500, sp500GrowthPct } = computeSp500Metrics(NULL_QUOTE, spx);
   let sp500Source: Sp500QuoteSource | null = spx.close !== null ? "stooq" : null;
 
-  if (sp500Incomplete(sp500, sp500GrowthPct)) {
-    const st = await fetchSp500StooqDailyLastTwo();
-    if (st) {
-      sp500 = st.price;
-      sp500GrowthPct = st.growthPct;
+  // Prefer live line (`q/l`) only when consistent with daily close; else trust daily.
+  if (stooqDaily) {
+    const livePrice = spx.close;
+    const liveSane =
+      livePrice !== null && (!stooqDaily.price || withinRelativeDiff(livePrice, stooqDaily.price, 0.08));
+    if (liveSane && stooqDaily.previousClose && livePrice !== null) {
+      sp500 = livePrice;
+      sp500GrowthPct = ((livePrice - stooqDaily.previousClose) / stooqDaily.previousClose) * 100;
+      sp500Source = "stooq";
+    } else {
+      sp500 = stooqDaily.price;
+      sp500GrowthPct = stooqDaily.growthPct;
       sp500Source = "stooq-daily";
     }
+  }
+
+  if (sp500Incomplete(sp500, sp500GrowthPct) && stooqDaily) {
+    sp500 = stooqDaily.price;
+    sp500GrowthPct = stooqDaily.growthPct;
+    sp500Source = "stooq-daily";
   }
 
   return { sp500, sp500GrowthPct, sp500Source };
@@ -266,13 +276,6 @@ async function resolveBitcoinMetrics(
   bitcoinSource: BitcoinQuoteSource | null;
 }> {
   const stooqBtcDaily = await fetchBitcoinStooqDailyLastTwo();
-  if (stooqBtcDaily) {
-    return {
-      bitcoin: stooqBtcDaily.price,
-      bitcoinGrowthPct: stooqBtcDaily.growthPct,
-      bitcoinSource: "stooq-daily",
-    };
-  }
 
   let bitcoin: number | null;
   let bitcoinGrowthPct: number | null;
@@ -292,6 +295,29 @@ async function resolveBitcoinMetrics(
       : options.mode === "coingecko" && bitcoin !== null
         ? "coingecko"
         : null;
+
+  // Prefer live line (`q/l`) only when consistent with daily close; else trust daily.
+  if (stooqBtcDaily) {
+    const livePrice = btcStooq.close;
+    const liveSane =
+      livePrice !== null &&
+      (!stooqBtcDaily.price || withinRelativeDiff(livePrice, stooqBtcDaily.price, 0.2));
+    if (liveSane && stooqBtcDaily.previousClose && livePrice !== null) {
+      bitcoin = livePrice;
+      bitcoinGrowthPct = ((livePrice - stooqBtcDaily.previousClose) / stooqBtcDaily.previousClose) * 100;
+      bitcoinSource = "stooq";
+    } else {
+      bitcoin = stooqBtcDaily.price;
+      bitcoinGrowthPct = stooqBtcDaily.growthPct;
+      bitcoinSource = "stooq-daily";
+    }
+  }
+
+  if (btcIncomplete(bitcoin, bitcoinGrowthPct) && stooqBtcDaily) {
+    bitcoin = stooqBtcDaily.price;
+    bitcoinGrowthPct = stooqBtcDaily.growthPct;
+    bitcoinSource = "stooq-daily";
+  }
 
   if (btcIncomplete(bitcoin, bitcoinGrowthPct)) {
     const bn = await fetchBitcoinBinanceDailyLastTwo();
