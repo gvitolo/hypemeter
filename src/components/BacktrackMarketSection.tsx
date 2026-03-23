@@ -17,6 +17,7 @@ import {
 
 type YearScore = { year: number; score: number };
 type YearEventSignal = { year: number; label: string; intensity: number };
+type ChartPoint = YearScore & { month?: number; periodLabel?: string; key?: string };
 
 type MarketSnap = {
   sp500: number | null;
@@ -42,8 +43,79 @@ type Props = {
 };
 
 /** Below `md` the chart uses the last N years so the x-axis isn’t cramped on phones. */
-const MOBILE_CHART_LAST_N_YEARS = 3;
+const MOBILE_CHART_LAST_N_YEARS = 2;
 const MOBILE_CHART_MQ = "(max-width: 767px)";
+
+function monthLabel(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+/**
+ * Build monthly points from yearly close-style points.
+ * For each year Y and month M, interpolate from (Y-1 close) -> (Y close), so 24 months remain historical.
+ */
+function expandToMonthlyWindow(
+  history: YearScore[],
+  marketOverlay: MarketYearlyOverlay,
+  events: YearEventSignal[],
+  lastNYears: number,
+): { history: ChartPoint[]; marketOverlay: MarketYearlyOverlay; events: YearEventSignal[] } {
+  if (history.length === 0) return { history: [], marketOverlay, events: [] };
+  const lastYear = history[history.length - 1]?.year ?? new Date().getFullYear();
+  const startYear = lastYear - lastNYears + 1;
+  const idxByYear = new Map(history.map((h, i) => [h.year, i]));
+  const scoreByYear = new Map(history.map((h) => [h.year, h.score]));
+
+  const buildMonthlySeries = (yearlyValues: number[]): number[] => {
+    const out: number[] = [];
+    for (let y = startYear; y <= lastYear; y += 1) {
+      const idx = idxByYear.get(y);
+      if (idx === undefined) continue;
+      const curr = yearlyValues[idx];
+      const prevIdx = idxByYear.get(y - 1);
+      const prev = prevIdx !== undefined ? yearlyValues[prevIdx] : curr;
+      for (let m = 1; m <= 12; m += 1) {
+        const t = m / 12;
+        out.push(prev + (curr - prev) * t);
+      }
+    }
+    return out;
+  };
+
+  const monthlyHistory: ChartPoint[] = [];
+  for (let y = startYear; y <= lastYear; y += 1) {
+    const curr = scoreByYear.get(y);
+    if (curr === undefined) continue;
+    const prev = scoreByYear.get(y - 1) ?? curr;
+    for (let m = 1; m <= 12; m += 1) {
+      const t = m / 12;
+      const score = Math.round(prev + (curr - prev) * t);
+      monthlyHistory.push({
+        year: y,
+        month: m,
+        score,
+        periodLabel: monthLabel(y, m),
+        key: `${y}-${String(m).padStart(2, "0")}`,
+      });
+    }
+  }
+
+  const monthlyOverlay: MarketYearlyOverlay = {
+    sp500: buildMonthlySeries(marketOverlay.sp500),
+    btc: buildMonthlySeries(marketOverlay.btc),
+    nintendo: buildMonthlySeries(marketOverlay.nintendo),
+    inflationYoY: buildMonthlySeries(marketOverlay.inflationYoY),
+    inflation: buildMonthlySeries(marketOverlay.inflation),
+  };
+
+  const visibleYears = new Set<number>();
+  for (let y = startYear; y <= lastYear; y += 1) visibleYears.add(y);
+  return {
+    history: monthlyHistory,
+    marketOverlay: monthlyOverlay,
+    events: events.filter((e) => visibleYears.has(e.year)),
+  };
+}
 
 const SP500_SOURCE_NOTE: Record<NonNullable<MarketSnap["sp500Source"]>, string> = {
   stooq: "Stooq",
@@ -66,13 +138,16 @@ export default function BacktrackMarketSection({
 }: Props) {
   const [highlight, setHighlight] = useState<MarketHighlightKey | null>(null);
   const isMobileChart = useMatchMedia(MOBILE_CHART_MQ);
-  const { history: chartHistory, marketOverlay: chartOverlay, events: chartEvents } = useMemo(
-    () =>
-      isMobileChart
-        ? sliceBacktrackView(history, marketOverlay, events, MOBILE_CHART_LAST_N_YEARS)
-        : { history, marketOverlay, events },
-    [isMobileChart, history, marketOverlay, events],
-  );
+  const { history: chartHistory, marketOverlay: chartOverlay, events: chartEvents } = useMemo(() => {
+    if (!isMobileChart) return { history, marketOverlay, events };
+    const sliced = sliceBacktrackView(history, marketOverlay, events, MOBILE_CHART_LAST_N_YEARS);
+    return expandToMonthlyWindow(
+      sliced.history,
+      sliced.marketOverlay,
+      sliced.events,
+      MOBILE_CHART_LAST_N_YEARS,
+    );
+  }, [isMobileChart, history, marketOverlay, events]);
 
   const sp500Href = STOOQ_QUOTE_SPX;
   const btcHref =
@@ -102,7 +177,7 @@ export default function BacktrackMarketSection({
           {isMobileChart && history.length > MOBILE_CHART_LAST_N_YEARS ? (
             <>
               {chartHistory[0]?.year}–{chartHistory[chartHistory.length - 1]?.year}
-              <span className="text-slate-500"> · last {MOBILE_CHART_LAST_N_YEARS} yrs</span>
+              <span className="text-slate-500"> · last {MOBILE_CHART_LAST_N_YEARS} yrs (monthly)</span>
               <span className="mt-0.5 block text-[10px] text-slate-600 md:hidden">
                 Full {history[0]?.year}–{history[history.length - 1]?.year} on wider screens
               </span>

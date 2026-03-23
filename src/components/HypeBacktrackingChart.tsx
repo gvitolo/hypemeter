@@ -12,6 +12,9 @@ const MOBILE_CHART_ENHANCE_MQ = "(max-width: 767px)";
 type YearScore = {
   year: number;
   score: number;
+  month?: number;
+  periodLabel?: string;
+  key?: string;
 };
 
 type YearEventSignal = {
@@ -232,7 +235,7 @@ export default function HypeBacktrackingChart({
         <div className="flex min-h-[4.75rem] flex-col justify-center rounded-lg border border-white/10 bg-slate-900 p-2">
           <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">selected</p>
           <p className="mt-1 min-h-[1.375rem] text-sm font-semibold tabular-nums leading-none text-cyan-300">
-            {active ? `${active.year} • ${active.score}` : "N/A"}
+            {active ? `${active.periodLabel ?? String(active.year)} • ${active.score}` : "N/A"}
           </p>
         </div>
         <div className="flex min-h-[4.75rem] flex-col justify-center rounded-lg border border-white/10 bg-slate-900 p-2">
@@ -349,10 +352,10 @@ export default function HypeBacktrackingChart({
         />
         {points.map((point, idx) => {
           const isPeak = hypePeakIndices.has(idx);
-          const isLastYear = point.year === points[points.length - 1]?.year;
+          const isLastPoint = idx === points.length - 1;
           const m = isMobileChartEnhance ? 1.12 : 1;
           return (
-            <g key={point.year}>
+            <g key={point.key ?? `${point.year}-${point.month ?? "y"}-${idx}`}>
               <circle
                 cx={point.x}
                 cy={point.y}
@@ -364,7 +367,7 @@ export default function HypeBacktrackingChart({
                     ? "#f8fafc"
                     : isPeak
                       ? "rgba(232, 121, 249, 0.95)"
-                      : isLastYear
+                      : isLastPoint
                         ? "#f472b6"
                         : "#22d3ee"
                 }
@@ -409,7 +412,7 @@ export default function HypeBacktrackingChart({
                 stroke="rgba(148, 163, 184, 0.4)"
               />
               <text x="10" y="17" fill="#e2e8f0" fontSize="11" fontWeight="700">
-                {active.year} • Hype {active.score}
+                {active.periodLabel ?? String(active.year)} • Hype {active.score}
               </text>
               {marketAtIndex ? (
                 <>
@@ -477,14 +480,14 @@ export default function HypeBacktrackingChart({
 
       <div className="mt-2 flex shrink-0 flex-col gap-1.5 border-t border-white/5 pt-2">
         <div className="flex shrink-0 flex-nowrap items-center justify-between gap-2 overflow-x-auto text-[11px] tabular-nums text-slate-400">
-          <span>{history[0]?.year}</span>
-          <span>{history[Math.floor(history.length / 4)]?.year}</span>
-          <span>{history[Math.floor(history.length / 2)]?.year}</span>
-          <span>{history[Math.floor((history.length * 3) / 4)]?.year}</span>
-          <span>{history[history.length - 1]?.year}</span>
+          <span>{history[0]?.periodLabel ?? history[0]?.year}</span>
+          <span>{history[Math.floor(history.length / 4)]?.periodLabel ?? history[Math.floor(history.length / 4)]?.year}</span>
+          <span>{history[Math.floor(history.length / 2)]?.periodLabel ?? history[Math.floor(history.length / 2)]?.year}</span>
+          <span>{history[Math.floor((history.length * 3) / 4)]?.periodLabel ?? history[Math.floor((history.length * 3) / 4)]?.year}</span>
+          <span>{history[history.length - 1]?.periodLabel ?? history[history.length - 1]?.year}</span>
         </div>
         <p className="shrink-0 text-[10px] leading-snug text-slate-500 sm:text-[11px]">
-          <span className="text-slate-500/90">Scrub horizontally</span> to pick a year.{" "}
+          <span className="text-slate-500/90">Scrub horizontally</span> to pick a period.{" "}
           <span className="text-fuchsia-300/90">Fuchsia</span> = hype peaks (cyan line).{" "}
           {marketLines && marketLines.length > 0 ? (
             <>
