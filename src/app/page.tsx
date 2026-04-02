@@ -150,6 +150,17 @@ const PRICECHARTING_ASSETS = [
 const MARKET_MOMENTUM_CACHE_KEY = "market_momentum_score_v1";
 const MARKET_MOMENTUM_REFRESH_MS = 60 * 60 * 1000;
 let marketMomentumRefreshInFlight: Promise<void> | null = null;
+const HOME_NEWS_CACHE_KEY = "home_news_items_v1";
+const HOME_SEARCH_STATS_CACHE_KEY = "home_search_stats_v1";
+const HOME_EVENT_CATALYST_CACHE_KEY = "home_event_catalyst_v1";
+const HOME_COMMUNITY_SENTIMENT_CACHE_KEY = "home_community_sentiment_v1";
+const HOME_SOCIAL_TRAFFIC_CACHE_KEY = "home_social_traffic_v1";
+const HOME_NEWS_REFRESH_MS = 5 * 60 * 1000;
+const HOME_SIGNALS_REFRESH_MS = 15 * 60 * 1000;
+const HOME_CARDTRADER_REFRESH_MS = 60 * 60 * 1000;
+const HOME_OVERLAY_REFRESH_MS = 30 * 60 * 1000;
+const HOME_POKEMON_BUNDLE_REFRESH_MS = 60 * 60 * 1000;
+const homeBackgroundJobs = new Map<string, Promise<void>>();
 
 const blockedSourceHints = [
   "hotelier.com.py",
@@ -959,6 +970,35 @@ function scoreMarketMomentumFromMacroFallback(marketFallback?: MarketSnapshot) {
   const spxSignal = spx === null ? 0 : Math.tanh(spx / 1.5);
   const blended = btcSignal * 0.65 + spxSignal * 0.35;
   return clampScore(50 + blended * 28);
+}
+
+type TimedRuntimeValue<T> = { value: T; updatedAtMs: number };
+
+function readTimedRuntimeValue<T>(key: string): TimedRuntimeValue<T> | null {
+  const row = readRuntimeSnapshotFromDb<{ value?: T; updatedAtMs?: number }>(key);
+  if (!row || row.updatedAtMs == null || !Number.isFinite(row.updatedAtMs) || row.value === undefined) return null;
+  return { value: row.value, updatedAtMs: row.updatedAtMs };
+}
+
+function upsertTimedRuntimeValue<T>(key: string, value: T) {
+  upsertRuntimeSnapshotToDb(key, { value, updatedAtMs: Date.now() });
+}
+
+function shouldRefreshTimed(cachedUpdatedAtMs: number | null, refreshMs: number): boolean {
+  if (cachedUpdatedAtMs === null) return true;
+  return Date.now() - cachedUpdatedAtMs >= refreshMs;
+}
+
+function scheduleBackgroundJob(key: string, fn: () => Promise<void>) {
+  if (homeBackgroundJobs.has(key)) return;
+  const run = (async () => {
+    try {
+      await fn();
+    } finally {
+      homeBackgroundJobs.delete(key);
+    }
+  })();
+  homeBackgroundJobs.set(key, run);
 }
 
 function readCachedMarketMomentumScore(): { score: number; updatedAtMs: number } | null {
@@ -1875,9 +1915,8 @@ function buildTodayCalendarStats(
 async function loadHomePageDataUncached() {
   const homeWallStart = performance.now();
   // Defensive defaults keep the page renderable even on upstream failures.
-  let items: NewsItem[] = [];
-  let searchStats: SearchInterestStats = { score: 35, todayTraffic: 0, yesterdayTraffic: 0 };
-  let socialTraffic: SocialTrafficSnapshot = lastSocialTrafficSnapshot ?? {
+  const defaultSearchStats: SearchInterestStats = { score: 35, todayTraffic: 0, yesterdayTraffic: 0 };
+  const defaultSocialTraffic: SocialTrafficSnapshot = lastSocialTrafficSnapshot ?? {
     "google-search": { current: 0, previous: 0 },
     reddit: { current: 0, previous: 0 },
     youtube: { current: 0, previous: 0 },
@@ -1885,64 +1924,87 @@ async function loadHomePageDataUncached() {
     threads: { current: 0, previous: 0 },
     "pokemon-official": { current: 0, previous: 0 },
   };
-  let searchInterest = 35;
-  let marketMomentum = 50;
-  let eventCatalyst = 40;
-  let communitySentiment = 50;
-  // Independent from news; start immediately so cold requests finish faster.
-  const marketPromise = timedAsync("home:fetchMarketSnapshot", () => fetchMarketSnapshot());
-  try {
-    await timedAsync("home:googleNewsRss", async () => {
-      const responses = await Promise.all(
-        [NEWS_URL, NEWS_URL_BACKUP].map((url) =>
-          fetchWithTimeout(url, {
-            next: { revalidate: 300 },
-            headers: {
-              "user-agent": "Mozilla/5.0 hypemeter",
-            },
-            timeoutMs: 7000,
-          }),
-        ),
-      );
-      for (const response of responses) {
-        if (!response?.ok) continue;
-        const xml = await response.text();
-        const parsed = parseNews(xml);
-        const curated = curateNewsItems(parsed);
-        // Fallback to lightly-filtered parsed feed if strict curation returns empty.
-        const fallback = parsed.filter((item) => /(pokemon|pokémon)/i.test(item.title));
-        const selected = (curated.length > 0 ? curated : fallback).slice(0, 28);
-        if (selected.length > 0) {
-          items = selected;
-          break;
-        }
-      }
-    });
-  } catch {
-    items = [];
-  }
+  const cachedNews = readTimedRuntimeValue<NewsItem[]>(HOME_NEWS_CACHE_KEY);
+  const items = cachedNews?.value ?? [];
 
-  let market = normalizeMarketSnapshot(await marketPromise);
-  if (market.sp500 === null && market.bitcoin === null) {
-    const cachedMarket = readRuntimeSnapshotFromDb<MarketSnapshot>("market_snapshot");
-    if (cachedMarket) {
-      market = normalizeMarketSnapshot(cachedMarket);
-    }
-  }
-  upsertRuntimeSnapshotToDb("market_snapshot", market);
-
-  // Pull independent external signals in parallel to minimize latency.
-  [searchStats, marketMomentum, eventCatalyst, communitySentiment] = await Promise.all([
-    timedAsync("home:fetchSearchInterestStats", () => fetchSearchInterestStats(items)),
-    timedAsync("home:fetchMarketMomentumScore", () => fetchMarketMomentumScore(market)),
-    timedAsync("home:fetchEventCatalystScore", () => fetchEventCatalystScore()),
-    timedAsync("home:fetchCommunitySentimentScore", () => fetchCommunitySentimentScore()),
-  ]);
-  socialTraffic = await timedAsync("home:fetchSocialTrafficSnapshot", () =>
-    fetchSocialTrafficSnapshot(searchStats, items),
+  const cachedMarketRaw = readRuntimeSnapshotFromDb<MarketSnapshot>("market_snapshot");
+  const market = normalizeMarketSnapshot(
+    cachedMarketRaw ?? {
+      sp500: null,
+      bitcoin: null,
+      nintendo: null,
+      nintendoPreviousClose: null,
+      nintendoChangeAbs: null,
+      nintendoChangeCurrency: null,
+      sp500GrowthPct: null,
+      bitcoinGrowthPct: null,
+      nintendoGrowthPct: null,
+      updatedAt: null,
+      nintendoSource: null,
+      sp500Source: null,
+      bitcoinSource: null,
+    },
   );
+
+  const cachedSearchStats = readTimedRuntimeValue<SearchInterestStats>(HOME_SEARCH_STATS_CACHE_KEY);
+  let searchStats = cachedSearchStats?.value ?? defaultSearchStats;
+  const cachedEventCatalyst = readTimedRuntimeValue<number>(HOME_EVENT_CATALYST_CACHE_KEY);
+  const cachedCommunitySentiment = readTimedRuntimeValue<number>(HOME_COMMUNITY_SENTIMENT_CACHE_KEY);
+  const cachedSocialTraffic = readTimedRuntimeValue<SocialTrafficSnapshot>(HOME_SOCIAL_TRAFFIC_CACHE_KEY);
+  let marketMomentum = await timedAsync("home:fetchMarketMomentumScore", () => fetchMarketMomentumScore(market));
+  const eventCatalyst = cachedEventCatalyst?.value ?? 40;
+  const communitySentiment = cachedCommunitySentiment?.value ?? 50;
+  let socialTraffic =
+    cachedSocialTraffic?.value ?? buildSocialFallbackFromItems(items, searchStats) ?? defaultSocialTraffic;
+  lastSocialTrafficSnapshot = socialTraffic;
+
+  if (shouldRefreshTimed(cachedNews?.updatedAtMs ?? null, HOME_NEWS_REFRESH_MS)) {
+    scheduleBackgroundJob("refresh:home-news", async () => {
+      const liveItems = await timedAsync("home:googleNewsRss", () => fetchHomeNewsItemsForPokemonDay());
+      if (liveItems.length > 0) upsertTimedRuntimeValue(HOME_NEWS_CACHE_KEY, liveItems);
+    });
+  }
+
+  if (shouldRefreshTimed(cachedSearchStats?.updatedAtMs ?? null, HOME_SIGNALS_REFRESH_MS)) {
+    scheduleBackgroundJob("refresh:home-signals", async () => {
+      const latestItems = readTimedRuntimeValue<NewsItem[]>(HOME_NEWS_CACHE_KEY)?.value ?? items;
+      const latestMarket = normalizeMarketSnapshot(
+        readRuntimeSnapshotFromDb<MarketSnapshot>("market_snapshot") ?? market,
+      );
+      const [liveSearchStats, liveMomentum, liveEventCatalyst, liveCommunitySentiment] = await Promise.all([
+        timedAsync("home:fetchSearchInterestStats", () => fetchSearchInterestStats(latestItems)),
+        timedAsync("home:fetchMarketMomentumScore", () => fetchMarketMomentumScore(latestMarket)),
+        timedAsync("home:fetchEventCatalystScore", () => fetchEventCatalystScore()),
+        timedAsync("home:fetchCommunitySentimentScore", () => fetchCommunitySentimentScore()),
+      ]);
+      upsertTimedRuntimeValue(HOME_SEARCH_STATS_CACHE_KEY, liveSearchStats);
+      upsertTimedRuntimeValue(HOME_EVENT_CATALYST_CACHE_KEY, liveEventCatalyst);
+      upsertTimedRuntimeValue(HOME_COMMUNITY_SENTIMENT_CACHE_KEY, liveCommunitySentiment);
+      upsertRuntimeSnapshotToDb(MARKET_MOMENTUM_CACHE_KEY, { score: liveMomentum, updatedAtMs: Date.now() });
+      const liveSocialTraffic = await timedAsync("home:fetchSocialTrafficSnapshot", () =>
+        fetchSocialTrafficSnapshot(liveSearchStats, latestItems),
+      );
+      upsertTimedRuntimeValue(HOME_SOCIAL_TRAFFIC_CACHE_KEY, liveSocialTraffic);
+    });
+  }
+
+  const marketRefreshTimed = readTimedRuntimeValue<{ ok: true }>("market_snapshot_refresh_v1");
+  if (shouldRefreshTimed(marketRefreshTimed?.updatedAtMs ?? null, HOME_SIGNALS_REFRESH_MS)) {
+    scheduleBackgroundJob("refresh:market-snapshot", async () => {
+      const liveMarket = normalizeMarketSnapshot(
+        await timedAsync("home:fetchMarketSnapshot", () => fetchMarketSnapshot()),
+      );
+      upsertRuntimeSnapshotToDb("market_snapshot", liveMarket);
+      upsertTimedRuntimeValue("market_snapshot_refresh_v1", { ok: true });
+    });
+  }
+
+  // Use cached signal stats immediately; refresh happens in background.
+  searchStats = cachedSearchStats?.value ?? defaultSearchStats;
+  marketMomentum = readCachedMarketMomentumScore()?.score ?? marketMomentum;
+  socialTraffic = cachedSocialTraffic?.value ?? socialTraffic;
   const socialPulse = computeSocialPulseStats(socialTraffic);
-  searchInterest = searchStats.score;
+  const searchInterest = searchStats.score;
 
   const { score, indicators, communityScore, marketScore } = summarizeHype(items, {
     searchInterest,
@@ -1962,21 +2024,54 @@ async function loadHomePageDataUncached() {
     socialPulseScore: socialPulse.aggregateScore,
   });
   const history = buildBacktrackSeries(score);
-  const [marketOverlay, cardTraderBestSellerLive] = await Promise.all([
-    timedAsync("home:fetchMarketYearlyOverlay", () =>
-      fetchMarketYearlyOverlay(history.map((h) => h.year)),
-    ),
-    timedAsync("home:fetchCardTraderPokemonBestSeller", () => fetchCardTraderPokemonBestSeller()),
-  ]);
-  const cardTraderBestSeller =
-    cardTraderBestSellerLive ??
+  const overlayRuntimeKey = `overlay_years_${history.map((h) => h.year).join(",")}`;
+  const overlayTimedKey = `${overlayRuntimeKey}_refresh_v1`;
+  const marketOverlay =
     readRuntimeSnapshotFromDb<{
+      sp500: number[];
+      btc: number[];
+      nintendo: number[];
+      inflationYoY: number[];
+      inflation: number[];
+      monthly?: {
+        labels: string[];
+        sp500: number[];
+        btc: number[];
+        nintendo: number[];
+        inflationYoY: number[];
+        inflation: number[];
+      };
+    }>(overlayRuntimeKey) ?? {
+      sp500: history.map(() => 50),
+      btc: history.map(() => 50),
+      nintendo: history.map(() => 50),
+      inflationYoY: history.map(() => 0),
+      inflation: history.map(() => 50),
+      monthly: undefined,
+    };
+  if (shouldRefreshTimed(readTimedRuntimeValue<{ ok: true }>(overlayTimedKey)?.updatedAtMs ?? null, HOME_OVERLAY_REFRESH_MS)) {
+    scheduleBackgroundJob(`refresh:overlay:${overlayRuntimeKey}`, async () => {
+      await timedAsync("home:fetchMarketYearlyOverlay", () => fetchMarketYearlyOverlay(history.map((h) => h.year)));
+      upsertTimedRuntimeValue(overlayTimedKey, { ok: true });
+    });
+  }
+
+  const cardTraderBestSeller = readRuntimeSnapshotFromDb<{
       name: string;
       imageUrl: string;
       cardUrl: string;
       fromPrice: string;
     }>("card_highlight_best_seller");
-  if (cardTraderBestSellerLive) upsertRuntimeSnapshotToDb("card_highlight_best_seller", cardTraderBestSellerLive);
+  const cardSellerCachedAt = readTimedRuntimeValue<{ name: string }>("card_highlight_best_seller_timed")?.updatedAtMs ?? null;
+  if (shouldRefreshTimed(cardSellerCachedAt, HOME_CARDTRADER_REFRESH_MS)) {
+    scheduleBackgroundJob("refresh:cardtrader-highlight", async () => {
+      const live = await timedAsync("home:fetchCardTraderPokemonBestSeller", () => fetchCardTraderPokemonBestSeller());
+      if (live) {
+        upsertRuntimeSnapshotToDb("card_highlight_best_seller", live);
+        upsertTimedRuntimeValue("card_highlight_best_seller_timed", { name: live.name });
+      }
+    });
+  }
   const todayCalendarStats = buildTodayCalendarStats(
     items.slice(0, 20),
     score,
@@ -2047,9 +2142,22 @@ async function loadHomePageDataUncached() {
     };
   });
   const pokemonDayKey = calendarDateIsoInTimeZone("Europe/Rome");
-  const pokemonBundle = await timedAsync("home:resolvePokemonOfDayDailyCached", () =>
-    resolvePokemonOfDayBundleCached(pokemonDayKey),
-  );
+  const pokemonBundle =
+    readPokemonDayBundleFromDb<{ pokemon: PokemonOfDay | null; winnerSlug: string | null; article: PokemonOfDayArticle | null }>(
+      pokemonDayKey,
+    ) ?? { pokemon: null, winnerSlug: null, article: null };
+  const pokemonBundleTimedKey = `pokemon_day_bundle_refresh_${pokemonDayKey}`;
+  if (
+    shouldRefreshTimed(
+      readTimedRuntimeValue<{ key: string }>(pokemonBundleTimedKey)?.updatedAtMs ?? null,
+      HOME_POKEMON_BUNDLE_REFRESH_MS,
+    )
+  ) {
+    scheduleBackgroundJob(`refresh:pokemon-bundle:${pokemonDayKey}`, async () => {
+      await timedAsync("home:resolvePokemonOfDayDailyCached", () => resolvePokemonOfDayBundleCached(pokemonDayKey));
+      upsertTimedRuntimeValue(pokemonBundleTimedKey, { key: pokemonDayKey });
+    });
+  }
   const pokemonOfDay = pokemonBundle.pokemon;
   const pokemonOfDayWinnerSlug = pokemonBundle.winnerSlug;
   const pokemonOfDayArticle = pokemonBundle.article;
