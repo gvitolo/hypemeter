@@ -17,6 +17,25 @@ export function formatGrowthPct(value: number | null) {
   return `${sign}${value.toFixed(2)}%`;
 }
 
+export function formatSignedChange(value: number | null, currency: "JPY" | "USD" | null) {
+  if (value === null || Number.isNaN(value) || currency === null) {
+    return "N/A";
+  }
+  if (currency === "JPY") {
+    const rounded = Math.round(value);
+    const sign = rounded > 0 ? "+" : "";
+    return `${sign}${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(rounded)} JPY`;
+  }
+  const abs = Math.abs(value);
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  const amount = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(abs);
+  return `${sign}${amount}`;
+}
+
 import type { MarketHighlightKey } from "@/lib/marketBacktrack";
 
 /**

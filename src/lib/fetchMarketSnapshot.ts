@@ -7,6 +7,7 @@ import {
   computeBitcoinStooqFallbackPath,
   computeSp500Metrics,
   jpyPairToUsdApprox,
+  parseYahooChartLastTwoCloses,
   parseStooqDailyDlLastTwoCloses,
   parseStooqMetrics,
 } from "@/lib/marketSnapshot";
@@ -35,6 +36,8 @@ export const COINGECKO_FETCH: RequestInit = {
 };
 const BINANCE_BTC_KLINES_URL =
   "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=2";
+const YAHOO_7974_TOKYO_CHART_URL =
+  "https://query1.finance.yahoo.com/v8/finance/chart/7974.T?range=5d&interval=1d";
 
 const STOOQ_SP500_URL = "https://stooq.com/q/l/?s=%5Espx&i=d";
 const STOOQ_BTC_URL = "https://stooq.com/q/l/?s=btcusd&i=d";
@@ -185,6 +188,7 @@ async function fetchNintendoTokyoUsdFromStooq7974(): Promise<{
   price: number;
   previousClose: number;
   growthPct: number;
+  changeAbsJpy: number;
 } | null> {
   try {
     const res = await fetch(buildStooq7974JpDailyUrl(), STOOQ_QUOTE_FETCH);
@@ -197,7 +201,38 @@ async function fetchNintendoTokyoUsdFromStooq7974(): Promise<{
     const previousClose = jpyPairToUsdApprox(two.prev, rate);
     if (price === null || previousClose === null) return null;
     const growthPct = ((two.last - two.prev) / two.prev) * 100;
-    return { price, previousClose, growthPct };
+    return { price, previousClose, growthPct, changeAbsJpy: two.last - two.prev };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchNintendoTokyoUsdFromYahooChart(): Promise<{
+  price: number;
+  previousClose: number;
+  growthPct: number;
+  changeAbsJpy: number;
+} | null> {
+  try {
+    const res = await fetch(YAHOO_7974_TOKYO_CHART_URL, {
+      cache: "no-store",
+      headers: { ...QUOTE_HEADERS },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as unknown;
+    const two = parseYahooChartLastTwoCloses(json);
+    if (!(two.last && two.prev && two.last > 0 && two.prev > 0)) return null;
+    const rate = await fetchUsdJpyFromStooq();
+    if (!(rate && rate > 0)) return null;
+    const price = jpyPairToUsdApprox(two.last, rate);
+    const previousClose = jpyPairToUsdApprox(two.prev, rate);
+    if (price === null || previousClose === null) return null;
+    return {
+      price,
+      previousClose,
+      growthPct: ((two.last - two.prev) / two.prev) * 100,
+      changeAbsJpy: two.last - two.prev,
+    };
   } catch {
     return null;
   }
@@ -336,6 +371,8 @@ async function resolveNintendoMetrics(): Promise<{
   nintendo: number | null;
   nintendoGrowthPct: number | null;
   nintendoPreviousClose: number | null;
+  nintendoChangeAbs: number | null;
+  nintendoChangeCurrency: "JPY" | "USD" | null;
   nintendoSource: "adr" | "tokyo" | null;
 }> {
   const adrDaily = await fetchNtdyStooqDailyLastTwo();
@@ -349,6 +386,8 @@ async function resolveNintendoMetrics(): Promise<{
       nintendo: adrDaily.price,
       nintendoGrowthPct: adrDaily.growthPct,
       nintendoPreviousClose: adrDaily.previousClose,
+      nintendoChangeAbs: adrDaily.price - adrDaily.previousClose,
+      nintendoChangeCurrency: "USD",
       nintendoSource: "adr",
     };
   }
@@ -356,6 +395,8 @@ async function resolveNintendoMetrics(): Promise<{
   let nintendo: number | null = null;
   let nintendoGrowthPct: number | null = null;
   let nintendoPreviousClose: number | null = null;
+  let nintendoChangeAbs: number | null = null;
+  let nintendoChangeCurrency: "JPY" | "USD" | null = null;
   let nintendoSource: "adr" | "tokyo" | null = null;
 
   const ntd = await fetchStooqNtdyMetrics();
@@ -371,11 +412,32 @@ async function resolveNintendoMetrics(): Promise<{
       nintendo = tokyo.price;
       nintendoPreviousClose = tokyo.previousClose;
       nintendoGrowthPct = tokyo.growthPct;
+      nintendoChangeAbs = tokyo.changeAbsJpy;
+      nintendoChangeCurrency = "JPY";
       nintendoSource = "tokyo";
     }
   }
 
-  return { nintendo, nintendoGrowthPct, nintendoPreviousClose, nintendoSource };
+  if (nintendoIncomplete({ nintendo, nintendoGrowthPct, nintendoPreviousClose })) {
+    const tokyoYahoo = await fetchNintendoTokyoUsdFromYahooChart();
+    if (tokyoYahoo) {
+      nintendo = tokyoYahoo.price;
+      nintendoPreviousClose = tokyoYahoo.previousClose;
+      nintendoGrowthPct = tokyoYahoo.growthPct;
+      nintendoChangeAbs = tokyoYahoo.changeAbsJpy;
+      nintendoChangeCurrency = "JPY";
+      nintendoSource = "tokyo";
+    }
+  }
+
+  return {
+    nintendo,
+    nintendoGrowthPct,
+    nintendoPreviousClose,
+    nintendoChangeAbs,
+    nintendoChangeCurrency,
+    nintendoSource,
+  };
 }
 
 /**
@@ -387,6 +449,8 @@ export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
     bitcoin: null,
     nintendo: null,
     nintendoPreviousClose: null,
+    nintendoChangeAbs: null,
+    nintendoChangeCurrency: null,
     sp500GrowthPct: null,
     bitcoinGrowthPct: null,
     nintendoGrowthPct: null,
@@ -397,10 +461,16 @@ export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
   };
 
   const stamp = () =>
-    new Date().toLocaleString("en-US", {
-      dateStyle: "medium",
-      timeStyle: "medium",
-    });
+    `${new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+      timeZone: "UTC",
+    }).format(new Date())} UTC`;
 
   try {
     const [spRes, btcRes] = await Promise.all([
@@ -420,6 +490,8 @@ export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
         bitcoin: btcResolved.bitcoin,
         nintendo: nintendoResolved.nintendo,
         nintendoPreviousClose: nintendoResolved.nintendoPreviousClose,
+        nintendoChangeAbs: nintendoResolved.nintendoChangeAbs,
+        nintendoChangeCurrency: nintendoResolved.nintendoChangeCurrency,
         sp500GrowthPct: spResolved.sp500GrowthPct,
         bitcoinGrowthPct: btcResolved.bitcoinGrowthPct,
         nintendoGrowthPct: nintendoResolved.nintendoGrowthPct,
@@ -461,6 +533,8 @@ export async function fetchMarketSnapshot(): Promise<MarketSnapshot> {
         bitcoin: btcResolved.bitcoin,
         nintendo: nintendoResolved.nintendo,
         nintendoPreviousClose: nintendoResolved.nintendoPreviousClose,
+        nintendoChangeAbs: nintendoResolved.nintendoChangeAbs,
+        nintendoChangeCurrency: nintendoResolved.nintendoChangeCurrency,
         sp500GrowthPct: spResolved.sp500GrowthPct,
         bitcoinGrowthPct: btcResolved.bitcoinGrowthPct,
         nintendoGrowthPct: nintendoResolved.nintendoGrowthPct,

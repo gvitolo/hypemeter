@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import HypeBacktrackingChart from "@/components/HypeBacktrackingChart";
 import { useMatchMedia } from "@/hooks/useMatchMedia";
 import { sliceBacktrackView } from "@/lib/sliceBacktrackView";
-import { formatGrowthPct, formatUsd, growthPctColorClass } from "@/lib/marketFormat";
+import { formatGrowthPct, formatSignedChange, formatUsd, growthPctColorClass } from "@/lib/marketFormat";
 import type { MarketHighlightKey, MarketYearlyOverlay } from "@/lib/marketBacktrack";
 import {
   BINANCE_BTC_USDT,
@@ -24,6 +24,8 @@ type MarketSnap = {
   bitcoin: number | null;
   nintendo: number | null;
   nintendoPreviousClose: number | null;
+  nintendoChangeAbs: number | null;
+  nintendoChangeCurrency: "JPY" | "USD" | null;
   sp500GrowthPct: number | null;
   bitcoinGrowthPct: number | null;
   nintendoGrowthPct: number | null;
@@ -302,9 +304,10 @@ export default function BacktrackMarketSection({
               <p
                 className={`text-xl font-bold tabular-nums leading-tight sm:text-2xl ${growthPctColorClass(market.nintendoGrowthPct, "nintendo")}`}
               >
-                {formatGrowthPct(market.nintendoGrowthPct)}
+                {formatSignedChange(market.nintendoChangeAbs, market.nintendoChangeCurrency)}
               </p>
               <p className="text-[11px] leading-snug text-slate-500">
+                {market.nintendoGrowthPct !== null ? `(${formatGrowthPct(market.nintendoGrowthPct)}) · ` : ""}
                 level: {formatUsd(market.nintendo)}
                 {market.nintendoPreviousClose !== null ? (
                   <span className="text-slate-500">

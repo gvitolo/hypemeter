@@ -2064,10 +2064,15 @@ async function loadHomePageDataUncached() {
   });
 
   // Single timestamp used as visible "last refreshed" marker in header.
-  const updatedAt = new Date().toLocaleString("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  const updatedAt = `${new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "UTC",
+  }).format(new Date())} UTC`;
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "WebApplication",
@@ -2199,7 +2204,7 @@ export default async function Home() {
                   trend signals.
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <p className="text-xs text-slate-400">Updated: {updatedAt}</p>
+                  <p className="text-xs text-slate-400">Updated (UTC): {updatedAt}</p>
                   <HomeReloadButton />
                 </div>
               </div>

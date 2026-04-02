@@ -40,6 +40,14 @@ export type MarketYearlyOverlay = {
 
 type YearlyCloseMap = Map<number, number>;
 type MonthlyCloseMap = Map<string, number>;
+type YahooChartResponse = {
+  chart?: {
+    result?: Array<{
+      timestamp?: number[];
+      indicators?: { quote?: Array<{ close?: Array<number | null> }> };
+    }>;
+  };
+};
 
 const STOOQ_HIST_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -119,6 +127,66 @@ function mergeYearlyMaps(primary: YearlyCloseMap, secondary: YearlyCloseMap): Ye
   const out = new Map<number, number>(secondary);
   for (const [y, c] of primary) out.set(y, c);
   return out;
+}
+
+/** `primary` wins on month collision. */
+function mergeMonthlyMaps(primary: MonthlyCloseMap, secondary: MonthlyCloseMap): MonthlyCloseMap {
+  const out = new Map<string, number>(secondary);
+  for (const [ym, c] of primary) out.set(ym, c);
+  return out;
+}
+
+/** Build yearly closes from a `YYYY-MM -> close` map (last month in year wins). */
+function yearlyFromMonthly(monthly: MonthlyCloseMap): YearlyCloseMap {
+  const out: YearlyCloseMap = new Map();
+  const byYearLatest = new Map<number, { ym: string; close: number }>();
+  for (const [ym, close] of monthly) {
+    const year = Number(ym.slice(0, 4));
+    if (Number.isNaN(year)) continue;
+    const prev = byYearLatest.get(year);
+    if (!prev || ym > prev.ym) byYearLatest.set(year, { ym, close });
+  }
+  for (const [year, row] of byYearLatest) out.set(year, row.close);
+  return out;
+}
+
+function parseYahooMonthlyCloses(payload: YahooChartResponse): MonthlyCloseMap {
+  const out: MonthlyCloseMap = new Map();
+  const result = payload.chart?.result?.[0];
+  const stamps = result?.timestamp ?? [];
+  const closes = result?.indicators?.quote?.[0]?.close ?? [];
+  if (stamps.length === 0 || closes.length === 0) return out;
+
+  const monthLast = new Map<string, { ts: number; close: number }>();
+  const n = Math.min(stamps.length, closes.length);
+  for (let i = 0; i < n; i++) {
+    const ts = Number(stamps[i]);
+    const close = Number(closes[i]);
+    if (!Number.isFinite(ts) || !Number.isFinite(close)) continue;
+    const d = new Date(ts * 1000);
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+    const prev = monthLast.get(key);
+    if (!prev || ts > prev.ts) monthLast.set(key, { ts, close });
+  }
+  for (const [ym, row] of monthLast) out.set(ym, row.close);
+  return out;
+}
+
+async function fetchYahooMonthlyClosesBySymbol(yahooSymbol: string, rangeYears = 25): Promise<MonthlyCloseMap> {
+  try {
+    const years = Math.max(1, Math.min(25, Math.round(rangeYears)));
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=${years}y&interval=1mo&events=div%2Csplits`;
+    const res = await fetch(url, {
+      next: { revalidate: 86400 },
+      headers: { "user-agent": STOOQ_HIST_UA },
+      signal: AbortSignal.timeout(HIST_FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) return new Map();
+    const json = (await res.json()) as YahooChartResponse;
+    return parseYahooMonthlyCloses(json);
+  } catch {
+    return new Map();
+  }
 }
 
 type CpiMonthRow = { y: number; m: number; t: number; cpi: number };
@@ -568,25 +636,56 @@ export async function fetchMarketYearlyOverlay(years: number[]): Promise<MarketY
     timedAsync("overlay:monthly:ntUs", () => fetchStooqMonthlyClosesBySymbol("ntdoy.us")),
     timedAsync("overlay:monthly:nt", () => fetchStooqMonthlyClosesBySymbol("ntdoy")),
   ]);
-  const spMap = spS;
-  const btcMap = btcS;
-  const ntMap = mergeYearlyMaps(ntUs, ntPlain);
+  let spMap = spS;
+  let btcMap = btcS;
+  let ntMap = mergeYearlyMaps(ntUs, ntPlain);
+  let spMonthly = spM;
+  let btcMonthly = btcM;
+  let ntMonthly = mergeMonthlyMaps(ntUsM, ntPlainM);
+
+  // Stooq can occasionally return empty bodies; Yahoo chart API is a robust fallback source.
+  if (spMap.size === 0 || spMonthly.size < 8) {
+    const spYahoo = await timedAsync("overlay:yahoo:sp500", () => fetchYahooMonthlyClosesBySymbol("^GSPC"));
+    if (spYahoo.size > 0) {
+      spMonthly = mergeMonthlyMaps(spYahoo, spMonthly);
+      spMap = mergeYearlyMaps(yearlyFromMonthly(spYahoo), spMap);
+    }
+  }
+  if (btcMap.size === 0 || btcMonthly.size < 8) {
+    const btcYahoo = await timedAsync("overlay:yahoo:btc", () => fetchYahooMonthlyClosesBySymbol("BTC-USD"));
+    if (btcYahoo.size > 0) {
+      btcMonthly = mergeMonthlyMaps(btcYahoo, btcMonthly);
+      btcMap = mergeYearlyMaps(yearlyFromMonthly(btcYahoo), btcMap);
+    }
+  }
+  if (ntMap.size === 0 || ntMonthly.size < 8) {
+    const ntYahooUsd = await timedAsync("overlay:yahoo:nintendoUsd", () =>
+      fetchYahooMonthlyClosesBySymbol("NTDOY"),
+    );
+    if (ntYahooUsd.size > 0) {
+      ntMonthly = mergeMonthlyMaps(ntYahooUsd, ntMonthly);
+      ntMap = mergeYearlyMaps(yearlyFromMonthly(ntYahooUsd), ntMap);
+    }
+  }
+
   const spAligned = alignYearSeries(years, spMap);
   const btcAligned = alignYearSeries(years, btcMap);
   let ntAligned = alignYearSeries(years, ntMap);
   /** NTDOY OTC can be sparse; Tokyo Stooq listing restores shape (single source, JPY→chart). */
   if (!seriesHasVariance(ntAligned)) {
-    const stooqTokyo = await timedAsync("overlay:stooq7974.jp", () =>
-      fetchStooqYearlyClosesBySymbol("7974.jp"),
-    );
-    ntAligned = alignYearSeries(years, stooqTokyo);
+    const [stooqTokyo, yahooTokyo] = await Promise.all([
+      timedAsync("overlay:stooq7974.jp", () => fetchStooqYearlyClosesBySymbol("7974.jp")),
+      timedAsync("overlay:yahoo7974.T", () => fetchYahooMonthlyClosesBySymbol("7974.T")),
+    ]);
+    const fromYahooTokyo = yearlyFromMonthly(yahooTokyo);
+    ntMap = mergeYearlyMaps(fromYahooTokyo, stooqTokyo);
+    ntMonthly = mergeMonthlyMaps(yahooTokyo, ntMonthly);
+    ntAligned = alignYearSeries(years, ntMap);
   }
   const inflationYoY = alignYearSeries(years, cpiYoYMap);
   const monthLabels = buildRecentMonthLabels(24);
-  const ntMonthly = new Map<string, number>(ntPlainM);
-  for (const [k, v] of ntUsM) ntMonthly.set(k, v);
-  const spMonthlyAligned = alignMonthSeries(monthLabels, spM);
-  const btcMonthlyAligned = alignMonthSeries(monthLabels, btcM);
+  const spMonthlyAligned = alignMonthSeries(monthLabels, spMonthly);
+  const btcMonthlyAligned = alignMonthSeries(monthLabels, btcMonthly);
   const ntMonthlyAligned = alignMonthSeries(monthLabels, ntMonthly);
   const monthlyInflationYoY = monthLabels.map((label) => {
     const y = Number(label.slice(0, 4));

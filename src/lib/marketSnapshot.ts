@@ -16,6 +16,10 @@ export type MarketSnapshot = {
   nintendo: number | null;
   /** Prior session close (USD), when available — Stooq line or daily CSV. */
   nintendoPreviousClose: number | null;
+  /** Absolute day change for Nintendo in native quote currency (JPY for Tokyo, USD for ADR). */
+  nintendoChangeAbs: number | null;
+  /** Currency for `nintendoChangeAbs`. */
+  nintendoChangeCurrency: "JPY" | "USD" | null;
   sp500GrowthPct: number | null;
   bitcoinGrowthPct: number | null;
   nintendoGrowthPct: number | null;

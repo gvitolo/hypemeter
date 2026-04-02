@@ -28,6 +28,29 @@ function mockStooqDailyYearly(startYear: number, endYear: number, base: number, 
   return lines.join("\n");
 }
 
+function mockYahooMonthlyJson(symbol: string, startYear: number, months: number, base: number, step: number) {
+  const timestamp: number[] = [];
+  const close: number[] = [];
+  const start = new Date(Date.UTC(startYear, 0, 1)).getTime();
+  for (let i = 0; i < months; i++) {
+    const d = new Date(start);
+    d.setUTCMonth(d.getUTCMonth() + i);
+    timestamp.push(Math.floor(d.getTime() / 1000));
+    close.push(Number((base + i * step).toFixed(4)));
+  }
+  return JSON.stringify({
+    chart: {
+      result: [
+        {
+          meta: { symbol },
+          timestamp,
+          indicators: { quote: [{ close }] },
+        },
+      ],
+    },
+  });
+}
+
 describe("fetchMarketYearlyOverlay (mocked Stooq + FRED)", () => {
   const originalFetch = globalThis.fetch;
 
@@ -95,5 +118,53 @@ describe("fetchMarketYearlyOverlay (mocked Stooq + FRED)", () => {
     expect(overlay.nintendo.length).toBe(n);
     expect(overlay.inflation.length).toBe(n);
     expect(overlay.inflationYoY.length).toBe(n);
+  });
+
+  it("uses Yahoo fallback when Stooq history is empty, avoiding flat market overlays", async () => {
+    const years = [2023, 2024, 2025, 2026];
+    const n = years.length;
+    const yahooSp = mockYahooMonthlyJson("^GSPC", 2023, 40, 3800, 22);
+    const yahooBtc = mockYahooMonthlyJson("BTC-USD", 2023, 40, 25000, 1500);
+    const yahooNt = mockYahooMonthlyJson("NTDOY", 2023, 40, 10, 0.3);
+    const fredCsv = mockFredCpiCsvFrom2004();
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("stooq.com/q/d/l/")) {
+        return new Response("", { status: 200, headers: { "Content-Type": "text/csv" } });
+      }
+      if (url.includes("query1.finance.yahoo.com/v8/finance/chart/%5EGSPC")) {
+        return new Response(yahooSp, { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("query1.finance.yahoo.com/v8/finance/chart/BTC-USD")) {
+        return new Response(yahooBtc, { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (
+        url.includes("query1.finance.yahoo.com/v8/finance/chart/NTDOY") ||
+        url.includes("query1.finance.yahoo.com/v8/finance/chart/7974.T")
+      ) {
+        return new Response(yahooNt, { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("fred.stlouisfed.org/graph/fredgraph.csv") && url.includes("CPIAUCSL")) {
+        return csvRes(fredCsv);
+      }
+      if (url.includes("api.worldbank.org")) {
+        return new Response(JSON.stringify([{}, []]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as typeof fetch;
+
+    const overlay = await fetchMarketYearlyOverlay(years);
+
+    expect(overlay.sp500.length).toBe(n);
+    expect(overlay.btc.length).toBe(n);
+    expect(overlay.nintendo.length).toBe(n);
+    expect(overlay.sp500.every((v) => v === overlay.sp500[0])).toBe(false);
+    expect(overlay.btc.every((v) => v === overlay.btc[0])).toBe(false);
+    expect(overlay.nintendo.every((v) => v === overlay.nintendo[0])).toBe(false);
+    expect(overlay.monthly?.sp500.every((v) => v === overlay.monthly?.sp500[0])).toBe(false);
   });
 });

@@ -9,6 +9,8 @@ export const MARKET_SNAPSHOT_PAGE_FALLBACK: MarketSnapshot = {
   bitcoin: 70076.5,
   nintendo: 14.7,
   nintendoPreviousClose: 15.2,
+  nintendoChangeAbs: -0.5,
+  nintendoChangeCurrency: "USD",
   sp500GrowthPct: -1.34,
   /** Slightly positive so the BTC card isn’t the same “red” as S&P when fallback fills all fields. */
   bitcoinGrowthPct: 0.12,
@@ -54,6 +56,8 @@ export function applyMarketSnapshotFallback(snapshot: MarketSnapshot): MarketSna
     bitcoin: snapshot.bitcoin ?? f.bitcoin,
     nintendo: snapshot.nintendo ?? f.nintendo,
     nintendoPreviousClose: snapshot.nintendoPreviousClose ?? f.nintendoPreviousClose,
+    nintendoChangeAbs: snapshot.nintendoChangeAbs ?? f.nintendoChangeAbs,
+    nintendoChangeCurrency: snapshot.nintendoChangeCurrency ?? f.nintendoChangeCurrency,
     sp500GrowthPct: snapshot.sp500GrowthPct ?? f.sp500GrowthPct,
     bitcoinGrowthPct: snapshot.bitcoinGrowthPct ?? f.bitcoinGrowthPct,
     nintendoGrowthPct: snapshot.nintendoGrowthPct ?? f.nintendoGrowthPct,
