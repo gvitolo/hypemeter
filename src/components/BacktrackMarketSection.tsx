@@ -188,6 +188,9 @@ export default function BacktrackMarketSection({
     const year = history[history.length - 1]?.year ?? null;
     return { hasData: true as const, pct, year };
   }, [marketOverlay.inflationYoY, history]);
+  const nintendoPrimary = formatSignedChange(market.nintendoChangeAbs, market.nintendoChangeCurrency);
+  const nintendoDisplayPrimary =
+    nintendoPrimary === "N/A" ? formatGrowthPct(market.nintendoGrowthPct) : nintendoPrimary;
 
   return (
     <section className="rounded-3xl border border-white/10 bg-slate-900 p-6 hover-lift">
@@ -304,7 +307,7 @@ export default function BacktrackMarketSection({
               <p
                 className={`text-xl font-bold tabular-nums leading-tight sm:text-2xl ${growthPctColorClass(market.nintendoGrowthPct, "nintendo")}`}
               >
-                {formatSignedChange(market.nintendoChangeAbs, market.nintendoChangeCurrency)}
+                {nintendoDisplayPrimary}
               </p>
               <p className="text-[11px] leading-snug text-slate-500">
                 {market.nintendoGrowthPct !== null ? `(${formatGrowthPct(market.nintendoGrowthPct)}) · ` : ""}

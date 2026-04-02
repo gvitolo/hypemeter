@@ -220,4 +220,44 @@ describe("fetchMarketSnapshot (integration, mocked fetch — Stooq-first)", () =
     expect(snap.nintendo).toBeCloseTo(10200 / 150, 6);
     expect(snap.nintendoPreviousClose).toBeCloseTo(10000 / 150, 6);
   });
+
+  it("ADR line fallback derives absolute change when daily previous-close path is unavailable", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : (input as Request).url;
+
+      if (url.includes("q/d/l") && url.includes("%5Espx")) {
+        return textRes(`Date,Open,High,Low,Close,Volume
+2025-03-18,1,1,1,99,1
+2025-03-19,1,1,1,100,1`);
+      }
+      if (url.includes("q/d/l") && url.includes("btcusd")) {
+        return textRes(`Date,Open,High,Low,Close,Volume
+2025-03-18,1,1,1,49000,1
+2025-03-19,1,1,1,50000,1`);
+      }
+      if (url.includes("q/d/l") && (url.includes("ntdoy.us") || url.includes("ntdoy"))) {
+        return textRes("");
+      }
+      if (url.startsWith(STOOQ_SP500) || url.startsWith(STOOQ_BTC)) {
+        return textRes("");
+      }
+      if (url.includes("q/l/?s=ntdoy.us")) {
+        return textRes("NTDOY.US,20260401,215900,14.00,14.44,14.2,14.22,244159,");
+      }
+      if (url.includes("q/d/l") && url.includes("7974.jp")) {
+        return textRes("");
+      }
+      if (url.includes("q/l/?s=usdjpy")) {
+        return textRes("");
+      }
+      throw new Error(`unexpected ADR fallback fetch: ${url}`);
+    }) as typeof fetch;
+
+    const snap = await fetchMarketSnapshot();
+    expect(snap.nintendoSource).toBe("adr");
+    expect(snap.nintendo).toBe(14.22);
+    expect(snap.nintendoPreviousClose).toBeNull();
+    expect(snap.nintendoChangeCurrency).toBe("USD");
+    expect(snap.nintendoChangeAbs).not.toBeNull();
+  });
 });

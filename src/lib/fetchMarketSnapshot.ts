@@ -258,6 +258,14 @@ function btcIncomplete(bitcoin: number | null, bitcoinGrowthPct: number | null) 
   return bitcoin === null || bitcoinGrowthPct === null;
 }
 
+/** From open→close session % derive absolute delta using close as anchor. */
+function absChangeFromSessionPct(close: number | null, growthPct: number | null): number | null {
+  if (close === null || growthPct === null) return null;
+  const g = growthPct / 100;
+  if (!Number.isFinite(g) || g <= -0.9999) return null;
+  return close - close / (1 + g);
+}
+
 function withinRelativeDiff(a: number, b: number, maxRatio: number): boolean {
   if (!(a > 0) || !(b > 0)) return false;
   return Math.abs(a - b) / b <= maxRatio;
@@ -403,6 +411,8 @@ async function resolveNintendoMetrics(): Promise<{
   if (ntd.close !== null) {
     nintendo = ntd.close;
     nintendoGrowthPct = ntd.growthPct;
+    nintendoChangeAbs = absChangeFromSessionPct(ntd.close, ntd.growthPct);
+    nintendoChangeCurrency = nintendoChangeAbs !== null ? "USD" : null;
     nintendoSource = "adr";
   }
 
