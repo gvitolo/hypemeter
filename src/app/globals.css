@@ -62,50 +62,6 @@ body {
   border-color: rgba(34, 211, 238, 0.35);
 }
 
-.narrative-flip-card {
-  perspective: 1000px;
-}
-
-.narrative-flip-button {
-  border-radius: 0.75rem;
-  outline: none;
-}
-
-.narrative-flip-button:focus-visible {
-  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.7);
-}
-
-.narrative-flip-inner {
-  position: relative;
-  height: 100%;
-  width: 100%;
-  transform-style: preserve-3d;
-  will-change: transform;
-  transition: transform 520ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.narrative-flip-inner.is-flipped {
-  transform: rotateY(180deg);
-}
-
-.narrative-flip-face {
-  position: absolute;
-  inset: 0;
-  -webkit-backface-visibility: hidden;
-  backface-visibility: hidden;
-}
-
-.narrative-flip-back {
-  transform: rotateY(180deg);
-}
-
-.narrative-flip-copy {
-  overflow-y: auto;
-  padding-right: 0.25rem;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(34, 211, 238, 0.35) transparent;
-}
-
 .ambient-orb {
   position: absolute;
   border-radius: 9999px;
@@ -144,7 +100,7 @@ body {
   }
 }
 
-/* Uniform static fill + animated crest only. */
+/* Uniform static fill (no wave). */
 .narrative-fill-body {
   overflow: hidden;
   border-top-left-radius: 14px;
@@ -157,38 +113,12 @@ body {
   );
   background-size: 100% 100%;
   background-position: 50% 0%;
-  position: relative;
-}
-
-.narrative-fill-body::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -10px;
-  height: 14px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='14' viewBox='0 0 120 14'%3E%3Cpath fill='%2322d3ee' fill-opacity='0.9' d='M0 9 C10 2 30 2 40 9 C50 16 70 16 80 9 C90 2 110 2 120 9 L120 14 L0 14 Z'/%3E%3C/svg%3E");
-  background-repeat: repeat-x;
-  background-size: 120px 14px;
-  background-position: 0 0;
-  animation: narrative-crest-wave 4.8s linear infinite;
-  pointer-events: none;
-}
-
-@keyframes narrative-crest-wave {
-  0% {
-    background-position: 0 0;
-  }
-  100% {
-    background-position: -120px 0;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .reveal-item,
   .reveal-item.is-visible,
   .hover-lift,
-  .narrative-flip-inner,
   .ambient-orb,
   .narrative-fill-body {
     animation: none !important;
@@ -197,9 +127,4 @@ body {
     filter: none !important;
     opacity: 1 !important;
   }
-
-  .narrative-fill-body::before {
-    animation: none !important;
-  }
-
 }

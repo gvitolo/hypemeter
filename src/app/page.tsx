@@ -1,7 +1,6 @@
 import BacktrackMarketSection from "@/components/BacktrackMarketSection";
 import { CardHighlightPanel } from "@/components/CardHighlightPanel";
 import DayStatsCalendar from "@/components/DayStatsCalendar";
-import { NarrativeFlipCards } from "@/components/NarrativeFlipCards";
 import { HomePageClientCacheWriter } from "@/components/HomePageClientCacheWriter";
 import { HomeNextUpdateCountdown } from "@/components/HomeNextUpdateCountdown";
 import { HomeReloadButton } from "@/components/HomeReloadButton";
@@ -35,6 +34,12 @@ type NewsItem = {
   pubDate: string;
   source: string;
   summary: string;
+};
+
+type LiveEventSignal = {
+  label: string;
+  group: string;
+  weight: number;
 };
 
 type SignalComponent = {
@@ -156,6 +161,7 @@ const HOME_EVENT_CATALYST_CACHE_KEY = "home_event_catalyst_v1";
 const HOME_COMMUNITY_SENTIMENT_CACHE_KEY = "home_community_sentiment_v1";
 const HOME_SOCIAL_TRAFFIC_CACHE_KEY = "home_social_traffic_v1";
 const HOME_NEWS_ITEMS_CACHE_KEY = "home_news_items_v1";
+const HOME_LIVE_EVENT_SIGNALS_CACHE_KEY = "home_live_event_signals_v1";
 const MARKET_SNAPSHOT_CACHE_KEY = "market_snapshot";
 const MARKET_SNAPSHOT_LAST_GOOD_CACHE_KEY = "market_snapshot_last_good_v1";
 const HOME_TIMEOUT_NEWS_MS = 800;
@@ -202,6 +208,12 @@ const LIVE_EVENT_SIGNAL_PATTERNS: Array<{ label: string; group: string; weight: 
 
 /** Max pills in the “Live Event Signals” row (extras still count toward scoring). */
 const LIVE_EVENT_SIGNALS_UI_MAX = 6;
+
+const HARD_FALLBACK_EVENT_SIGNALS: LiveEventSignal[] = [
+  { label: "Search trend active", group: "fallback", weight: 1.6 },
+  { label: "Community pulse online", group: "fallback", weight: 1.5 },
+  { label: "Market watch running", group: "fallback", weight: 1.4 },
+];
 
 const CONTEXTUAL_SIGNAL_PATTERNS: Array<{
   label: string;
@@ -477,6 +489,46 @@ function extractLiveEventSignals(items: NewsItem[], limit = 12) {
   return Array.from(deduped.values())
     .sort((a, b) => b.weight - a.weight)
     .slice(0, limit);
+}
+
+function isLiveEventSignalArray(value: unknown): value is LiveEventSignal[] {
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    (row) =>
+      !!row &&
+      typeof row === "object" &&
+      typeof (row as Partial<LiveEventSignal>).label === "string" &&
+      typeof (row as Partial<LiveEventSignal>).group === "string" &&
+      typeof (row as Partial<LiveEventSignal>).weight === "number",
+  );
+}
+
+function ensureLiveEventSignals(
+  items: NewsItem[],
+  cachedSignals: LiveEventSignal[] | null,
+  limit = 12,
+): LiveEventSignal[] {
+  const extracted = extractLiveEventSignals(items, limit);
+  if (extracted.length > 0) return extracted;
+
+  if (cachedSignals && cachedSignals.length > 0) {
+    return cachedSignals.slice(0, limit);
+  }
+
+  const text = normalize(items.map((item) => `${item.title} ${item.summary}`).join(" | "));
+  const synthetic: LiveEventSignal[] = [];
+  if (/(tournament|championship|regional|worlds)/i.test(text)) {
+    synthetic.push({ label: "Competitive circuit activity", group: "competition", weight: 1.8 });
+  }
+  if (/(launch|release|update|patch|expansion|set)/i.test(text)) {
+    synthetic.push({ label: "Release cycle updates", group: "release", weight: 1.7 });
+  }
+  if (/(price|market|demand|supply|restock|sold out|preorder)/i.test(text)) {
+    synthetic.push({ label: "Demand and supply shifts", group: "market", weight: 1.6 });
+  }
+
+  const base = synthetic.length > 0 ? synthetic : HARD_FALLBACK_EVENT_SIGNALS;
+  return base.slice(0, limit);
 }
 
 function computeLiveSignalQuality(args: {
@@ -1670,16 +1722,6 @@ function narrativeCardLabel(tag: string, kind: "momentum" | "breadth" | "convict
   return tag;
 }
 
-function narrativeCardExplanation(_tag: string, kind: "momentum" | "breadth" | "conviction"): string {
-  if (kind === "momentum") {
-    return "Momentum: the tendency of prices to keep moving in their recent direction; strong assets often stay strong while weak assets stay weak for a period.";
-  }
-  if (kind === "breadth") {
-    return "Breadth: how many stocks are advancing versus declining; a rally is usually more reliable when participation is broad.";
-  }
-  return "Conviction: the strength and confidence behind a move, indicating how solid and dependable the signal appears.";
-}
-
 // Build the displayed 2005->today timeline and blend latest point with live score.
 function buildBacktrackSeries(liveScore: number): YearScore[] {
   const currentYear = new Date().getFullYear();
@@ -2006,7 +2048,7 @@ function buildTodayCalendarStats(
     Math.round(50 + (positiveHits - negativeHits) * 8 + Math.log10(headlineCount + 1) * 12),
   );
 
-  const eventSignals = extractLiveEventSignals(items, 8);
+  const eventSignals = ensureLiveEventSignals(items, null, 8);
   const signalQuality = computeLiveSignalQuality({
     items,
     eventSignalCount: eventSignals.length,
@@ -2037,6 +2079,12 @@ async function loadHomePageDataUncached() {
   const homeWallStart = performance.now();
   // Defensive defaults keep the page renderable even on upstream failures.
   const cachedNewsItems = readRuntimeSnapshotFromDb<NewsItem[]>(HOME_NEWS_ITEMS_CACHE_KEY);
+  const cachedLiveEventSignalsRaw = readRuntimeSnapshotFromDb<LiveEventSignal[]>(
+    HOME_LIVE_EVENT_SIGNALS_CACHE_KEY,
+  );
+  const cachedLiveEventSignals = isLiveEventSignalArray(cachedLiveEventSignalsRaw)
+    ? cachedLiveEventSignalsRaw
+    : null;
   let items: NewsItem[] = cachedNewsItems ?? [];
   let searchStats: SearchInterestStats = { score: 35, todayTraffic: 0, yesterdayTraffic: 0 };
   let socialTraffic: SocialTrafficSnapshot = lastSocialTrafficSnapshot ?? {
@@ -2209,7 +2257,10 @@ async function loadHomePageDataUncached() {
     searchInterest,
     socialTraffic,
   );
-  const liveEventSignals = extractLiveEventSignals(items);
+  const liveEventSignals = ensureLiveEventSignals(items, cachedLiveEventSignals);
+  if (liveEventSignals.length > 0) {
+    upsertRuntimeSnapshotToDb(HOME_LIVE_EVENT_SIGNALS_CACHE_KEY, liveEventSignals);
+  }
   const liveSignalQuality = computeLiveSignalQuality({
     items,
     eventSignalCount: liveEventSignals.length,
@@ -2532,31 +2583,65 @@ export default async function Home() {
               </div>
             </div>
             <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,2.15fr)_minmax(14.5rem,0.65fr)] xl:items-stretch">
-              <NarrativeFlipCards
-                items={[
-                  {
-                    id: "momentum",
-                    title: "Momentum",
-                    label: narrativeCardLabel(traderNarrative.momentumTag, "momentum"),
-                    fillPct: Math.max(38, narrativeIndicatorLevel(traderNarrative.momentumTag, "momentum")),
-                    explanation: narrativeCardExplanation(traderNarrative.momentumTag, "momentum"),
-                  },
-                  {
-                    id: "breadth",
-                    title: "Breadth",
-                    label: narrativeCardLabel(traderNarrative.breadthTag, "breadth"),
-                    fillPct: Math.max(38, narrativeIndicatorLevel(traderNarrative.breadthTag, "breadth")),
-                    explanation: narrativeCardExplanation(traderNarrative.breadthTag, "breadth"),
-                  },
-                  {
-                    id: "conviction",
-                    title: "Conviction",
-                    label: narrativeCardLabel(traderNarrative.convictionTag, "conviction"),
-                    fillPct: Math.max(38, narrativeIndicatorLevel(traderNarrative.convictionTag, "conviction")),
-                    explanation: narrativeCardExplanation(traderNarrative.convictionTag, "conviction"),
-                  },
-                ]}
-              />
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <div className="relative overflow-hidden rounded-lg border border-white/15 bg-slate-800/95 px-3 py-3 sm:min-h-[5.5rem]">
+                  {(() => {
+                    const fill = Math.max(38, narrativeIndicatorLevel(traderNarrative.momentumTag, "momentum"));
+                    return <div className="narrative-fill-body pointer-events-none absolute inset-x-0 bottom-0" style={{ height: `${fill}%` }} />;
+                  })()}
+                  <div className="relative z-10 flex h-full flex-col justify-between gap-1">
+                    <a
+                      href="https://en.wikipedia.org/wiki/Momentum_(finance)"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-fit text-[10px] uppercase tracking-[0.12em] text-slate-300 underline decoration-cyan-300/65 underline-offset-2 transition-colors hover:text-cyan-200"
+                    >
+                      Momentum
+                    </a>
+                    <p className="pr-1 text-base font-bold leading-tight text-cyan-200 sm:text-lg">
+                      {narrativeCardLabel(traderNarrative.momentumTag, "momentum")}
+                    </p>
+                  </div>
+                </div>
+                <div className="relative overflow-hidden rounded-lg border border-white/15 bg-slate-800/95 px-3 py-3 sm:min-h-[5.5rem]">
+                  {(() => {
+                    const fill = Math.max(38, narrativeIndicatorLevel(traderNarrative.breadthTag, "breadth"));
+                    return <div className="narrative-fill-body pointer-events-none absolute inset-x-0 bottom-0" style={{ height: `${fill}%` }} />;
+                  })()}
+                  <div className="relative z-10 flex h-full flex-col justify-between gap-1">
+                    <a
+                      href="https://en.wikipedia.org/wiki/Breadth_of_market"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-fit text-[10px] uppercase tracking-[0.12em] text-slate-300 underline decoration-cyan-300/65 underline-offset-2 transition-colors hover:text-cyan-200"
+                    >
+                      Breadth
+                    </a>
+                    <p className="pr-1 text-base font-bold leading-tight text-cyan-200 sm:text-lg">
+                      {narrativeCardLabel(traderNarrative.breadthTag, "breadth")}
+                    </p>
+                  </div>
+                </div>
+                <div className="relative overflow-hidden rounded-lg border border-white/15 bg-slate-800/95 px-3 py-3 sm:min-h-[5.5rem]">
+                  {(() => {
+                    const fill = Math.max(38, narrativeIndicatorLevel(traderNarrative.convictionTag, "conviction"));
+                    return <div className="narrative-fill-body pointer-events-none absolute inset-x-0 bottom-0" style={{ height: `${fill}%` }} />;
+                  })()}
+                  <div className="relative z-10 flex h-full flex-col justify-between gap-1">
+                    <a
+                      href="https://naturalinvestments.com/the-meaning-of-conviction/"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-fit text-[10px] uppercase tracking-[0.12em] text-slate-300 underline decoration-cyan-300/65 underline-offset-2 transition-colors hover:text-cyan-200"
+                    >
+                      Conviction
+                    </a>
+                    <p className="pr-1 text-base font-bold leading-tight text-cyan-200 sm:text-lg">
+                      {narrativeCardLabel(traderNarrative.convictionTag, "conviction")}
+                    </p>
+                  </div>
+                </div>
+              </div>
               <div className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/10 bg-slate-800/80 p-3 xl:h-full">
                 <p className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-slate-400">
                   Live Event Signals
