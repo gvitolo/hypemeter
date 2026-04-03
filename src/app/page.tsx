@@ -2508,10 +2508,7 @@ export default async function Home() {
                           style={{ height: `${fill}%` }}
                         />
                         <div className="pointer-events-none absolute inset-x-0" style={{ bottom: `calc(${fill}% - 0.6rem)` }}>
-                          <div className="narrative-liquid-wave h-4 w-[220%]">
-                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-a" />
-                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-b" />
-                          </div>
+                          <div className="narrative-liquid-wave h-4 w-full" />
                         </div>
                       </>
                     );
@@ -2533,10 +2530,7 @@ export default async function Home() {
                           style={{ height: `${fill}%` }}
                         />
                         <div className="pointer-events-none absolute inset-x-0" style={{ bottom: `calc(${fill}% - 0.6rem)` }}>
-                          <div className="narrative-liquid-wave h-4 w-[220%]">
-                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-a" />
-                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-b" />
-                          </div>
+                          <div className="narrative-liquid-wave h-4 w-full" />
                         </div>
                       </>
                     );
@@ -2558,10 +2552,7 @@ export default async function Home() {
                           style={{ height: `${fill}%` }}
                         />
                         <div className="pointer-events-none absolute inset-x-0" style={{ bottom: `calc(${fill}% - 0.6rem)` }}>
-                          <div className="narrative-liquid-wave h-4 w-[220%]">
-                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-a" />
-                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-b" />
-                          </div>
+                          <div className="narrative-liquid-wave h-4 w-full" />
                         </div>
                       </>
                     );

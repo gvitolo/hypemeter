@@ -101,43 +101,19 @@ body {
 }
 
 .narrative-liquid-wave {
-  position: relative;
-  overflow: hidden;
   border-radius: 9999px;
-  opacity: 0.94;
-  filter: blur(0.25px);
-}
-
-.narrative-liquid-wave-layer {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  border-radius: 9999px;
-  background-repeat: repeat-x;
-}
-
-.narrative-liquid-wave-layer-a {
+  opacity: 0.95;
+  background-repeat: repeat-x, repeat-x;
   background-image:
-    radial-gradient(24px 11px at 28px 11px, rgba(125, 211, 252, 0.84) 0 56%, rgba(125, 211, 252, 0) 58%),
-    radial-gradient(30px 12px at 70px 6px, rgba(192, 132, 252, 0.72) 0 56%, rgba(192, 132, 252, 0) 58%);
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='16' viewBox='0 0 120 16'%3E%3Cpath fill='%237dd3fc' fill-opacity='0.75' d='M0 10 C10 2 30 2 40 10 C50 18 70 18 80 10 C90 2 110 2 120 10 L120 16 L0 16 Z'/%3E%3C/svg%3E"),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='16' viewBox='0 0 160 16'%3E%3Cpath fill='%23d946ef' fill-opacity='0.55' d='M0 9 C12 1 28 1 40 9 C52 17 68 17 80 9 C92 1 108 1 120 9 C132 17 148 17 160 9 L160 16 L0 16 Z'/%3E%3C/svg%3E");
   background-size:
-    112px 100%,
-    168px 100%;
-  animation: liquid-wave-shift-a 4.8s linear infinite;
+    120px 16px,
+    160px 16px;
+  animation: liquid-wave-seamless 6s linear infinite;
 }
 
-.narrative-liquid-wave-layer-b {
-  background-image:
-    radial-gradient(20px 9px at 24px 9px, rgba(34, 211, 238, 0.5) 0 55%, rgba(34, 211, 238, 0) 58%),
-    radial-gradient(26px 10px at 56px 12px, rgba(217, 70, 239, 0.42) 0 55%, rgba(217, 70, 239, 0) 58%);
-  background-size:
-    96px 100%,
-    144px 100%;
-  mix-blend-mode: screen;
-  animation: liquid-wave-shift-b 7.2s linear infinite reverse;
-}
-
-@keyframes liquid-wave-shift-a {
+@keyframes liquid-wave-seamless {
   0% {
     background-position:
       0 0,
@@ -145,21 +121,8 @@ body {
   }
   100% {
     background-position:
-      -336px 0,
-      -504px 0;
-  }
-}
-
-@keyframes liquid-wave-shift-b {
-  0% {
-    background-position:
-      0 0,
-      0 0;
-  }
-  100% {
-    background-position:
-      -288px 0,
-      -432px 0;
+      -120px 0,
+      -160px 0;
   }
 }
 
@@ -168,9 +131,7 @@ body {
   .reveal-item.is-visible,
   .hover-lift,
   .ambient-orb,
-  .narrative-liquid-wave,
-  .narrative-liquid-wave-layer-a,
-  .narrative-liquid-wave-layer-b {
+  .narrative-liquid-wave {
     animation: none !important;
     transition: none !important;
     transform: none !important;
