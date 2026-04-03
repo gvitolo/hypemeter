@@ -2584,57 +2584,60 @@ export default async function Home() {
             </div>
             <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,2.15fr)_minmax(14.5rem,0.65fr)] xl:items-stretch">
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <div className="relative overflow-hidden rounded-lg border border-white/15 bg-slate-800/95 px-3 py-3 sm:min-h-[5.5rem]">
+                <Link
+                  href="/momentum"
+                  aria-label="Open momentum explanation page"
+                  className="group relative overflow-hidden rounded-lg border border-white/15 bg-slate-800/95 px-3 py-3 transition-colors hover:border-cyan-300/45 sm:min-h-[5.5rem]"
+                >
                   {(() => {
                     const fill = Math.max(38, narrativeIndicatorLevel(traderNarrative.momentumTag, "momentum"));
                     return <div className="narrative-fill-body pointer-events-none absolute inset-x-0 bottom-0" style={{ height: `${fill}%` }} />;
                   })()}
                   <div className="relative z-10 flex h-full flex-col justify-between gap-1">
-                    <Link
-                      href="/momentum"
-                      className="w-fit text-[10px] uppercase tracking-[0.12em] text-slate-300 underline decoration-cyan-300/65 underline-offset-2 transition-colors hover:text-cyan-200"
-                    >
+                    <p className="w-fit text-[10px] uppercase tracking-[0.12em] text-slate-300 underline decoration-cyan-300/65 underline-offset-2 transition-colors group-hover:text-cyan-200">
                       Momentum
-                    </Link>
+                    </p>
                     <p className="pr-1 text-base font-bold leading-tight text-cyan-200 sm:text-lg">
                       {narrativeCardLabel(traderNarrative.momentumTag, "momentum")}
                     </p>
                   </div>
-                </div>
-                <div className="relative overflow-hidden rounded-lg border border-white/15 bg-slate-800/95 px-3 py-3 sm:min-h-[5.5rem]">
+                </Link>
+                <Link
+                  href="/breadth"
+                  aria-label="Open breadth explanation page"
+                  className="group relative overflow-hidden rounded-lg border border-white/15 bg-slate-800/95 px-3 py-3 transition-colors hover:border-cyan-300/45 sm:min-h-[5.5rem]"
+                >
                   {(() => {
                     const fill = Math.max(38, narrativeIndicatorLevel(traderNarrative.breadthTag, "breadth"));
                     return <div className="narrative-fill-body pointer-events-none absolute inset-x-0 bottom-0" style={{ height: `${fill}%` }} />;
                   })()}
                   <div className="relative z-10 flex h-full flex-col justify-between gap-1">
-                    <Link
-                      href="/breadth"
-                      className="w-fit text-[10px] uppercase tracking-[0.12em] text-slate-300 underline decoration-cyan-300/65 underline-offset-2 transition-colors hover:text-cyan-200"
-                    >
+                    <p className="w-fit text-[10px] uppercase tracking-[0.12em] text-slate-300 underline decoration-cyan-300/65 underline-offset-2 transition-colors group-hover:text-cyan-200">
                       Breadth
-                    </Link>
+                    </p>
                     <p className="pr-1 text-base font-bold leading-tight text-cyan-200 sm:text-lg">
                       {narrativeCardLabel(traderNarrative.breadthTag, "breadth")}
                     </p>
                   </div>
-                </div>
-                <div className="relative overflow-hidden rounded-lg border border-white/15 bg-slate-800/95 px-3 py-3 sm:min-h-[5.5rem]">
+                </Link>
+                <Link
+                  href="/conviction"
+                  aria-label="Open conviction explanation page"
+                  className="group relative overflow-hidden rounded-lg border border-white/15 bg-slate-800/95 px-3 py-3 transition-colors hover:border-cyan-300/45 sm:min-h-[5.5rem]"
+                >
                   {(() => {
                     const fill = Math.max(38, narrativeIndicatorLevel(traderNarrative.convictionTag, "conviction"));
                     return <div className="narrative-fill-body pointer-events-none absolute inset-x-0 bottom-0" style={{ height: `${fill}%` }} />;
                   })()}
                   <div className="relative z-10 flex h-full flex-col justify-between gap-1">
-                    <Link
-                      href="/conviction"
-                      className="w-fit text-[10px] uppercase tracking-[0.12em] text-slate-300 underline decoration-cyan-300/65 underline-offset-2 transition-colors hover:text-cyan-200"
-                    >
+                    <p className="w-fit text-[10px] uppercase tracking-[0.12em] text-slate-300 underline decoration-cyan-300/65 underline-offset-2 transition-colors group-hover:text-cyan-200">
                       Conviction
-                    </Link>
+                    </p>
                     <p className="pr-1 text-base font-bold leading-tight text-cyan-200 sm:text-lg">
                       {narrativeCardLabel(traderNarrative.convictionTag, "conviction")}
                     </p>
                   </div>
-                </div>
+                </Link>
               </div>
               <div className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/10 bg-slate-800/80 p-3 xl:h-full">
                 <p className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-slate-400">

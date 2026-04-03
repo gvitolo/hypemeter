@@ -17,13 +17,38 @@ export default function BreadthPage() {
           <p className="text-[11px] uppercase tracking-[0.14em] text-cyan-300">Market Term</p>
           <h1 className="mt-2 text-3xl font-semibold text-white sm:text-4xl">Breadth</h1>
           <p className="mt-4 text-sm leading-relaxed text-slate-200 sm:text-base">
-            Market breadth measures participation: how many stocks are advancing versus declining. Broad participation
-            usually confirms trend quality better than moves led by only a few names.
+            Breadth measures participation in a move: how many components are advancing versus declining. A stronger
+            trend usually has broad participation, while narrow leadership can be more fragile.
           </p>
-          <p className="mt-3 text-sm leading-relaxed text-slate-300 sm:text-base">
-            On Monmeter, this card reflects whether the broader signal set is aligned or fragmented. Higher breadth
-            generally indicates stronger market backing behind current direction.
-          </p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <article className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-300">Typical Proxies</p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                Advance/decline behavior, ratio of gainers to losers, and whether participation expands or contracts.
+              </p>
+            </article>
+            <article className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-300">Why It Matters</p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                Broad participation supports durability. Narrow participation can signal concentration risk and weaker
+                follow-through.
+              </p>
+            </article>
+            <article className="rounded-2xl border border-white/10 bg-slate-950/55 p-4 sm:col-span-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-300">Monmeter Context</p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                In Monmeter breadth describes how aligned the overall signal ecosystem is. Higher breadth means more
+                parts of the market narrative are confirming each other.
+              </p>
+            </article>
+          </div>
+          <div className="mt-5 rounded-2xl border border-cyan-400/20 bg-cyan-500/5 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Quick Interpretation</p>
+            <p className="mt-2 text-sm leading-relaxed text-slate-200">
+              If only a few names are carrying the move, breadth is usually weaker. If participation is wide, trend
+              quality is usually stronger.
+            </p>
+          </div>
         </section>
 
         <footer className="mt-5 rounded-2xl border border-white/10 bg-slate-900/60 p-4">
