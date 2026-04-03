@@ -161,6 +161,7 @@ const HOME_EVENT_CATALYST_CACHE_KEY = "home_event_catalyst_v1";
 const HOME_COMMUNITY_SENTIMENT_CACHE_KEY = "home_community_sentiment_v1";
 const HOME_SOCIAL_TRAFFIC_CACHE_KEY = "home_social_traffic_v1";
 const HOME_NEWS_ITEMS_CACHE_KEY = "home_news_items_v1";
+const HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY = "home_news_items_last_good_v1";
 const HOME_LIVE_EVENT_SIGNALS_CACHE_KEY = "home_live_event_signals_v1";
 const MARKET_SNAPSHOT_CACHE_KEY = "market_snapshot";
 const MARKET_SNAPSHOT_LAST_GOOD_CACHE_KEY = "market_snapshot_last_good_v1";
@@ -208,6 +209,30 @@ const LIVE_EVENT_SIGNAL_PATTERNS: Array<{ label: string; group: string; weight: 
 
 /** Max pills in the “Live Event Signals” row (extras still count toward scoring). */
 const LIVE_EVENT_SIGNALS_UI_MAX = 6;
+
+const NEWS_ITEMS_HARD_FALLBACK: NewsItem[] = [
+  {
+    title: "Pokemon News Hub",
+    link: "https://www.pokemon.com/us/pokemon-news",
+    pubDate: "2024-01-01T00:00:00.000Z",
+    source: "Pokemon.com",
+    summary: "Official Pokemon news fallback when live RSS feeds are temporarily unavailable.",
+  },
+  {
+    title: "Pokemon TCG News Hub",
+    link: "https://tcg.pokemon.com/en-us/news/",
+    pubDate: "2024-01-01T00:00:00.000Z",
+    source: "Pokemon TCG",
+    summary: "Official Pokemon TCG updates fallback entry.",
+  },
+  {
+    title: "Nintendo News",
+    link: "https://www.nintendo.com/us/whatsnew/",
+    pubDate: "2024-01-01T00:00:00.000Z",
+    source: "Nintendo",
+    summary: "Nintendo official updates fallback entry.",
+  },
+];
 
 const HARD_FALLBACK_EVENT_SIGNALS: LiveEventSignal[] = [
   { label: "Search trend active", group: "fallback", weight: 1.6 },
@@ -2102,13 +2127,14 @@ async function loadHomePageDataUncached() {
   const homeWallStart = performance.now();
   // Defensive defaults keep the page renderable even on upstream failures.
   const cachedNewsItems = readRuntimeSnapshotFromDb<NewsItem[]>(HOME_NEWS_ITEMS_CACHE_KEY);
+  const lastGoodNewsItems = readRuntimeSnapshotFromDb<NewsItem[]>(HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY);
   const cachedLiveEventSignalsRaw = readRuntimeSnapshotFromDb<LiveEventSignal[]>(
     HOME_LIVE_EVENT_SIGNALS_CACHE_KEY,
   );
   const cachedLiveEventSignals = isLiveEventSignalArray(cachedLiveEventSignalsRaw)
     ? cachedLiveEventSignalsRaw
     : null;
-  let items: NewsItem[] = cachedNewsItems ?? [];
+  let items: NewsItem[] = cachedNewsItems ?? lastGoodNewsItems ?? NEWS_ITEMS_HARD_FALLBACK;
   let searchStats: SearchInterestStats = { score: 35, todayTraffic: 0, yesterdayTraffic: 0 };
   let socialTraffic: SocialTrafficSnapshot = lastSocialTrafficSnapshot ?? {
     "google-search": { current: 0, previous: 0 },
@@ -2150,14 +2176,23 @@ async function loadHomePageDataUncached() {
         const selected = (curated.length > 0 ? curated : fallback).slice(0, 28);
         if (selected.length > 0) {
           upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_CACHE_KEY, selected);
+          upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY, selected);
           return selected;
         }
       }
-      return [] as NewsItem[];
+      return cachedNewsItems ?? lastGoodNewsItems ?? NEWS_ITEMS_HARD_FALLBACK;
     }),
     HOME_TIMEOUT_NEWS_MS,
-    () => cachedNewsItems ?? [],
+    () => cachedNewsItems ?? lastGoodNewsItems ?? NEWS_ITEMS_HARD_FALLBACK,
   );
+  if (items.length > 0) {
+    upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_CACHE_KEY, items);
+    upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY, items);
+  } else {
+    items = NEWS_ITEMS_HARD_FALLBACK;
+    upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_CACHE_KEY, items);
+    upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY, items);
+  }
 
   const cachedMarketRaw = readRuntimeSnapshotFromDb<MarketSnapshot>(MARKET_SNAPSHOT_CACHE_KEY);
   const cachedMarket = cachedMarketRaw ? normalizeMarketSnapshot(cachedMarketRaw) : null;
