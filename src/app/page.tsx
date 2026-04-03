@@ -6,7 +6,7 @@ import { HomeNextUpdateCountdown } from "@/components/HomeNextUpdateCountdown";
 import { HomeReloadButton } from "@/components/HomeReloadButton";
 import HypeGauge from "@/components/HypeGauge";
 import ScrollReveal from "@/components/ScrollReveal";
-import { fetchMarketYearlyOverlay } from "@/lib/marketBacktrack";
+import { fetchMarketYearlyOverlay, type MarketYearlyOverlay } from "@/lib/marketBacktrack";
 import { fetchMarketSnapshot } from "@/lib/fetchMarketSnapshot";
 import type { MarketSnapshot } from "@/lib/marketSnapshot";
 import { fetchCardTraderPokemonBestSeller } from "@/lib/fetchCardTraderBestSeller";
@@ -150,6 +150,18 @@ const PRICECHARTING_ASSETS = [
 const MARKET_MOMENTUM_CACHE_KEY = "market_momentum_score_v1";
 const MARKET_MOMENTUM_REFRESH_MS = 60 * 60 * 1000;
 let marketMomentumRefreshInFlight: Promise<void> | null = null;
+const HOME_SEARCH_STATS_CACHE_KEY = "home_search_stats_v1";
+const HOME_EVENT_CATALYST_CACHE_KEY = "home_event_catalyst_v1";
+const HOME_COMMUNITY_SENTIMENT_CACHE_KEY = "home_community_sentiment_v1";
+const HOME_SOCIAL_TRAFFIC_CACHE_KEY = "home_social_traffic_v1";
+const HOME_NEWS_ITEMS_CACHE_KEY = "home_news_items_v1";
+const HOME_TIMEOUT_NEWS_MS = 800;
+const HOME_TIMEOUT_MARKET_MS = 1000;
+const HOME_TIMEOUT_SIGNAL_MS = 900;
+const HOME_TIMEOUT_SOCIAL_MS = 1000;
+const HOME_TIMEOUT_OVERLAY_MS = 900;
+const HOME_TIMEOUT_CARD_MS = 800;
+const HOME_TIMEOUT_POKEMON_MS = 800;
 
 const blockedSourceHints = [
   "hotelier.com.py",
@@ -620,6 +632,22 @@ async function fetchWithTimeout(
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+async function withSoftTimeout<T>(
+  task: () => Promise<T>,
+  timeoutMs: number,
+  fallback: () => T | Promise<T>,
+): Promise<T> {
+  const pending = task()
+    .then((value) => ({ kind: "value" as const, value }))
+    .catch(() => ({ kind: "error" as const }));
+  const timed = new Promise<{ kind: "timeout" }>((resolve) =>
+    setTimeout(() => resolve({ kind: "timeout" }), timeoutMs),
+  );
+  const result = await Promise.race([pending, timed]);
+  if (result.kind === "value") return result.value;
+  return await fallback();
 }
 
 function parseCompactMetric(raw: string) {
@@ -1875,7 +1903,8 @@ function buildTodayCalendarStats(
 async function loadHomePageDataUncached() {
   const homeWallStart = performance.now();
   // Defensive defaults keep the page renderable even on upstream failures.
-  let items: NewsItem[] = [];
+  const cachedNewsItems = readRuntimeSnapshotFromDb<NewsItem[]>(HOME_NEWS_ITEMS_CACHE_KEY);
+  let items: NewsItem[] = cachedNewsItems ?? [];
   let searchStats: SearchInterestStats = { score: 35, todayTraffic: 0, yesterdayTraffic: 0 };
   let socialTraffic: SocialTrafficSnapshot = lastSocialTrafficSnapshot ?? {
     "google-search": { current: 0, previous: 0 },
@@ -1889,10 +1918,13 @@ async function loadHomePageDataUncached() {
   let marketMomentum = 50;
   let eventCatalyst = 40;
   let communitySentiment = 50;
-  // Independent from news; start immediately so cold requests finish faster.
-  const marketPromise = timedAsync("home:fetchMarketSnapshot", () => fetchMarketSnapshot());
-  try {
-    await timedAsync("home:googleNewsRss", async () => {
+  const cachedSearchStats = readRuntimeSnapshotFromDb<SearchInterestStats>(HOME_SEARCH_STATS_CACHE_KEY);
+  const cachedEventCatalyst = readRuntimeSnapshotFromDb<number>(HOME_EVENT_CATALYST_CACHE_KEY);
+  const cachedCommunitySentiment = readRuntimeSnapshotFromDb<number>(HOME_COMMUNITY_SENTIMENT_CACHE_KEY);
+  const cachedSocialTraffic = readRuntimeSnapshotFromDb<SocialTrafficSnapshot>(HOME_SOCIAL_TRAFFIC_CACHE_KEY);
+  items = await withSoftTimeout(
+    () =>
+      timedAsync("home:googleNewsRss", async () => {
       const responses = await Promise.all(
         [NEWS_URL, NEWS_URL_BACKUP].map((url) =>
           fetchWithTimeout(url, {
@@ -1900,7 +1932,7 @@ async function loadHomePageDataUncached() {
             headers: {
               "user-agent": "Mozilla/5.0 hypemeter",
             },
-            timeoutMs: 7000,
+            timeoutMs: 2500,
           }),
         ),
       );
@@ -1913,18 +1945,40 @@ async function loadHomePageDataUncached() {
         const fallback = parsed.filter((item) => /(pokemon|pokémon)/i.test(item.title));
         const selected = (curated.length > 0 ? curated : fallback).slice(0, 28);
         if (selected.length > 0) {
-          items = selected;
-          break;
+          upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_CACHE_KEY, selected);
+          return selected;
         }
       }
-    });
-  } catch {
-    items = [];
-  }
+      return [] as NewsItem[];
+    }),
+    HOME_TIMEOUT_NEWS_MS,
+    () => cachedNewsItems ?? [],
+  );
 
-  let market = normalizeMarketSnapshot(await marketPromise);
+  const cachedMarket = readRuntimeSnapshotFromDb<MarketSnapshot>("market_snapshot");
+  let market = normalizeMarketSnapshot(
+    await withSoftTimeout(
+      () => timedAsync("home:fetchMarketSnapshot", () => fetchMarketSnapshot()),
+      HOME_TIMEOUT_MARKET_MS,
+      () =>
+        cachedMarket ?? {
+          sp500: null,
+          bitcoin: null,
+          nintendo: null,
+          nintendoPreviousClose: null,
+          nintendoChangeAbs: null,
+          nintendoChangeCurrency: null,
+          sp500GrowthPct: null,
+          bitcoinGrowthPct: null,
+          nintendoGrowthPct: null,
+          updatedAt: null,
+          nintendoSource: null,
+          sp500Source: null,
+          bitcoinSource: null,
+        },
+    ),
+  );
   if (market.sp500 === null && market.bitcoin === null) {
-    const cachedMarket = readRuntimeSnapshotFromDb<MarketSnapshot>("market_snapshot");
     if (cachedMarket) {
       market = normalizeMarketSnapshot(cachedMarket);
     }
@@ -1933,14 +1987,32 @@ async function loadHomePageDataUncached() {
 
   // Pull independent external signals in parallel to minimize latency.
   [searchStats, marketMomentum, eventCatalyst, communitySentiment] = await Promise.all([
-    timedAsync("home:fetchSearchInterestStats", () => fetchSearchInterestStats(items)),
+    withSoftTimeout(
+      () => timedAsync("home:fetchSearchInterestStats", () => fetchSearchInterestStats(items)),
+      HOME_TIMEOUT_SIGNAL_MS,
+      () => cachedSearchStats ?? { score: 35, todayTraffic: 0, yesterdayTraffic: 0 },
+    ),
     timedAsync("home:fetchMarketMomentumScore", () => fetchMarketMomentumScore(market)),
-    timedAsync("home:fetchEventCatalystScore", () => fetchEventCatalystScore()),
-    timedAsync("home:fetchCommunitySentimentScore", () => fetchCommunitySentimentScore()),
+    withSoftTimeout(
+      () => timedAsync("home:fetchEventCatalystScore", () => fetchEventCatalystScore()),
+      HOME_TIMEOUT_SIGNAL_MS,
+      () => cachedEventCatalyst ?? 40,
+    ),
+    withSoftTimeout(
+      () => timedAsync("home:fetchCommunitySentimentScore", () => fetchCommunitySentimentScore()),
+      HOME_TIMEOUT_SIGNAL_MS,
+      () => cachedCommunitySentiment ?? 50,
+    ),
   ]);
-  socialTraffic = await timedAsync("home:fetchSocialTrafficSnapshot", () =>
-    fetchSocialTrafficSnapshot(searchStats, items),
+  socialTraffic = await withSoftTimeout(
+    () => timedAsync("home:fetchSocialTrafficSnapshot", () => fetchSocialTrafficSnapshot(searchStats, items)),
+    HOME_TIMEOUT_SOCIAL_MS,
+    () => cachedSocialTraffic ?? lastSocialTrafficSnapshot ?? socialTraffic,
   );
+  upsertRuntimeSnapshotToDb(HOME_SEARCH_STATS_CACHE_KEY, searchStats);
+  upsertRuntimeSnapshotToDb(HOME_EVENT_CATALYST_CACHE_KEY, eventCatalyst);
+  upsertRuntimeSnapshotToDb(HOME_COMMUNITY_SENTIMENT_CACHE_KEY, communitySentiment);
+  upsertRuntimeSnapshotToDb(HOME_SOCIAL_TRAFFIC_CACHE_KEY, socialTraffic);
   const socialPulse = computeSocialPulseStats(socialTraffic);
   searchInterest = searchStats.score;
 
@@ -1962,11 +2034,29 @@ async function loadHomePageDataUncached() {
     socialPulseScore: socialPulse.aggregateScore,
   });
   const history = buildBacktrackSeries(score);
+  const overlayRuntimeKey = `overlay_years_${history.map((h) => h.year).join(",")}`;
   const [marketOverlay, cardTraderBestSellerLive] = await Promise.all([
-    timedAsync("home:fetchMarketYearlyOverlay", () =>
-      fetchMarketYearlyOverlay(history.map((h) => h.year)),
+    withSoftTimeout(
+      () =>
+        timedAsync("home:fetchMarketYearlyOverlay", () =>
+          fetchMarketYearlyOverlay(history.map((h) => h.year)),
+        ),
+      HOME_TIMEOUT_OVERLAY_MS,
+      () =>
+        readRuntimeSnapshotFromDb<MarketYearlyOverlay>(overlayRuntimeKey) ?? {
+          sp500: history.map(() => 50),
+          btc: history.map(() => 50),
+          nintendo: history.map(() => 50),
+          inflationYoY: history.map(() => 0),
+          inflation: history.map(() => 50),
+          monthly: undefined,
+        },
     ),
-    timedAsync("home:fetchCardTraderPokemonBestSeller", () => fetchCardTraderPokemonBestSeller()),
+    withSoftTimeout(
+      () => timedAsync("home:fetchCardTraderPokemonBestSeller", () => fetchCardTraderPokemonBestSeller()),
+      HOME_TIMEOUT_CARD_MS,
+      () => null,
+    ),
   ]);
   const cardTraderBestSeller =
     cardTraderBestSellerLive ??
@@ -2047,8 +2137,15 @@ async function loadHomePageDataUncached() {
     };
   });
   const pokemonDayKey = calendarDateIsoInTimeZone("Europe/Rome");
-  const pokemonBundle = await timedAsync("home:resolvePokemonOfDayDailyCached", () =>
-    resolvePokemonOfDayBundleCached(pokemonDayKey),
+  const pokemonBundle = await withSoftTimeout(
+    () => timedAsync("home:resolvePokemonOfDayDailyCached", () => resolvePokemonOfDayBundleCached(pokemonDayKey)),
+    HOME_TIMEOUT_POKEMON_MS,
+    () =>
+      readPokemonDayBundleFromDb<{
+        pokemon: PokemonOfDay | null;
+        winnerSlug: string | null;
+        article: PokemonOfDayArticle | null;
+      }>(pokemonDayKey) ?? { pokemon: null, winnerSlug: null, article: null },
   );
   const pokemonOfDay = pokemonBundle.pokemon;
   const pokemonOfDayWinnerSlug = pokemonBundle.winnerSlug;
