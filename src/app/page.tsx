@@ -1670,21 +1670,14 @@ function narrativeCardLabel(tag: string, kind: "momentum" | "breadth" | "convict
   return tag;
 }
 
-function narrativeCardExplanation(tag: string, kind: "momentum" | "breadth" | "conviction"): string {
-  const t = tag.toLowerCase();
+function narrativeCardExplanation(_tag: string, kind: "momentum" | "breadth" | "conviction"): string {
   if (kind === "momentum") {
-    if (t.includes("up")) return "Trend strength is positive. Buyers are in control and pullbacks are usually buyable with disciplined stops.";
-    if (t.includes("range")) return "Momentum is balanced. Market rotates in a range, so selective entries and tighter risk control work best.";
-    return "Momentum is soft. Prioritize defense, smaller position sizing, and wait for stronger confirmation.";
+    return "Momentum: quando il mercato mantiene la stessa direzione (rialzo o ribasso) per piu sessioni consecutive.";
   }
   if (kind === "breadth") {
-    if (t.includes("broad")) return "Participation is broad across signals, which usually makes moves cleaner and more durable.";
-    if (t.includes("mixed")) return "Participation is mixed. Some signals confirm while others lag, so conviction should stay moderate.";
-    return "Participation is narrow. Fewer signals support the move, so breakouts are less reliable.";
+    return "Breadth: misura quante componenti del mercato confermano il movimento, non solo pochi titoli isolati.";
   }
-  if (t.includes("high")) return "Signal quality is high. Setup confidence improves, with better follow-through probability.";
-  if (t.includes("medium")) return "Signal quality is moderate. Respect opportunities, but avoid over-sizing before stronger alignment.";
-  return "Signal quality is low. Noise is elevated, so reduce risk and wait for clearer structure.";
+  return "Conviction: indica la qualita e la forza del segnale, cioe quanto il movimento appare solido e affidabile.";
 }
 
 // Build the displayed 2005->today timeline and blend latest point with live score.
