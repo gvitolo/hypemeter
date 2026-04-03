@@ -115,10 +115,14 @@ export default function DayStatsCalendar({ initialData, initialDate }: Props) {
 
   const loadDay = useCallback(async (date: string) => {
     const cached = loadDayCalendarPersisted();
-    if (date < todayIso && cached.days[date]) {
-      setData(cached.days[date]);
-      setLoading(false);
+    const cachedDay = cached.days[date];
+    if (cachedDay) {
+      // Always render latest saved snapshot immediately (today included) to avoid empty states.
+      setData(cachedDay);
       setError(null);
+    }
+    if (date < todayIso && cachedDay) {
+      setLoading(false);
       return;
     }
 
@@ -141,7 +145,14 @@ export default function DayStatsCalendar({ initialData, initialDate }: Props) {
         return merged;
       });
     } catch (err: unknown) {
-      if (active) setError(err instanceof Error ? err.message : "Unknown error");
+      if (!active) return;
+      if (cachedDay) {
+        // Keep rendering cached snapshot if network is down.
+        setData(cachedDay);
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      }
     } finally {
       if (active) setLoading(false);
     }
