@@ -2508,7 +2508,6 @@ export default async function Home() {
                   trend signals.
                 </p>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <p className="text-xs text-slate-400">Updated: {updatedAt}</p>
                   <HomeReloadButton />
                   <Link
                     href="/about"
