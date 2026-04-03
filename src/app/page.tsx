@@ -847,6 +847,12 @@ function buildSocialFallbackFromItems(items: NewsItem[], searchStats: SearchInte
   } as SocialTrafficSnapshot;
 }
 
+function hasMeaningfulSocialData(snapshot: SocialTrafficSnapshot | null | undefined): boolean {
+  if (!snapshot) return false;
+  const keys = ["google-search", "reddit", "youtube", "facebook", "threads", "pokemon-official"] as const;
+  return keys.some((key) => (snapshot[key]?.current ?? 0) > 0 || (snapshot[key]?.previous ?? 0) > 0);
+}
+
 async function fetchSocialTrafficSnapshot(searchStats: SearchInterestStats, items: NewsItem[]) {
   const fallback = buildSocialFallbackFromItems(items, searchStats);
   const [reddit, youtube, facebook, threads] = await Promise.all([
@@ -2022,10 +2028,16 @@ async function loadHomePageDataUncached() {
       () => cachedCommunitySentiment ?? 50,
     ),
   ]);
+  const socialFallbackFromNews = buildSocialFallbackFromItems(items, searchStats);
   socialTraffic = await withSoftTimeout(
     () => timedAsync("home:fetchSocialTrafficSnapshot", () => fetchSocialTrafficSnapshot(searchStats, items)),
     HOME_TIMEOUT_SOCIAL_MS,
-    () => cachedSocialTraffic ?? lastSocialTrafficSnapshot ?? socialTraffic,
+    () =>
+      hasMeaningfulSocialData(cachedSocialTraffic)
+        ? cachedSocialTraffic!
+        : hasMeaningfulSocialData(lastSocialTrafficSnapshot)
+          ? (lastSocialTrafficSnapshot as SocialTrafficSnapshot)
+          : socialFallbackFromNews,
   );
   upsertRuntimeSnapshotToDb(HOME_SEARCH_STATS_CACHE_KEY, searchStats);
   upsertRuntimeSnapshotToDb(HOME_EVENT_CATALYST_CACHE_KEY, eventCatalyst);
