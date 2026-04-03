@@ -1722,6 +1722,29 @@ function narrativeCardLabel(tag: string, kind: "momentum" | "breadth" | "convict
   return tag;
 }
 
+function sentimentExplainHref(key: SentimentWindow["key"]) {
+  if (key === "1m") return "/learn/sentiment-1m";
+  if (key === "1y") return "/learn/sentiment-1y";
+  return "/learn/sentiment-5y";
+}
+
+function socialPlatformExplainHref(key: string) {
+  const safe = key.toLowerCase();
+  return `/learn/social-${safe}`;
+}
+
+function componentExplainHref(id: string) {
+  const map: Record<string, string> = {
+    search_interest: "/learn/component-search-interest",
+    market_momentum: "/learn/component-market-momentum",
+    availability_pressure: "/learn/component-availability-pressure",
+    release_catalyst: "/learn/component-release-catalyst",
+    community_sentiment: "/learn/component-community-sentiment",
+    product_stress: "/learn/component-product-stress",
+  };
+  return map[id] ?? "/learn/model-weights";
+}
+
 // Build the displayed 2005->today timeline and blend latest point with live score.
 function buildBacktrackSeries(liveScore: number): YearScore[] {
   const currentYear = new Date().getFullYear();
@@ -2639,7 +2662,10 @@ export default async function Home() {
                   </div>
                 </Link>
               </div>
-              <div className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/10 bg-slate-800/80 p-3 xl:h-full">
+              <Link
+                href="/learn/live-event-signals"
+                className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/10 bg-slate-800/80 p-3 transition-colors hover:border-fuchsia-300/45 xl:h-full"
+              >
                 <p className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-slate-400">
                   Live Event Signals
                 </p>
@@ -2660,26 +2686,35 @@ export default async function Home() {
                     </span>
                   )}
                 </div>
-              </div>
+              </Link>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-xl border border-white/10 bg-slate-800 p-3 hover-lift">
+              <Link
+                href="/learn/community-hype"
+                className="rounded-xl border border-white/10 bg-slate-800 p-3 hover-lift transition-colors hover:border-cyan-300/45"
+              >
                 <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
                   Pokemon Community Hype
                 </p>
                 <p className="mt-1 text-2xl font-bold text-cyan-300">
                   {communityScore}/100
                 </p>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-slate-800 p-3 hover-lift">
+              </Link>
+              <Link
+                href="/learn/market-heat"
+                className="rounded-xl border border-white/10 bg-slate-800 p-3 hover-lift transition-colors hover:border-fuchsia-300/45"
+              >
                 <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
                   Pokemon TCG Market Heat
                 </p>
                 <p className="mt-1 text-2xl font-bold text-fuchsia-300">
                   {marketScore}/100
                 </p>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-slate-800 p-3 hover-lift sm:col-span-2">
+              </Link>
+              <Link
+                href="/learn/signal-quality"
+                className="rounded-xl border border-white/10 bg-slate-800 p-3 hover-lift transition-colors hover:border-cyan-300/45 sm:col-span-2"
+              >
                 <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
                   Signal Quality
                 </p>
@@ -2689,30 +2724,29 @@ export default async function Home() {
                     based on source diversity, coverage, and signal density
                   </p>
                 </div>
-              </div>
-              <details className="group rounded-xl border border-cyan-400/25 bg-slate-800/90 p-3 hover-lift sm:col-span-2 open:ring-1 open:ring-cyan-500/20">
-                <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300 marker:content-none [&::-webkit-details-marker]:hidden">
-                  <span className="inline-flex items-center gap-2">
-                    Model Weights
-                    <span className="rounded-full border border-white/15 bg-slate-900/80 px-2 py-0.5 text-[10px] font-normal normal-case tracking-normal text-slate-400 group-open:hidden">
-                      tap to expand
-                    </span>
-                  </span>
-                </summary>
+              </Link>
+              <Link
+                href="/learn/model-weights"
+                className="rounded-xl border border-cyan-400/25 bg-slate-800/90 p-3 hover-lift transition-colors hover:border-cyan-300/55 sm:col-span-2"
+              >
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">
+                  Model Weights
+                </p>
                 <p className="mt-2 text-[11px] text-slate-300">
                   Composite index with 6 weighted components: Search Interest (26%),
                   Market Momentum (20%), Availability Pressure (18%), Event Catalyst (14%),
                   Community Sentiment (11%), Product Stress (11%).
                 </p>
-              </details>
+              </Link>
             </div>
           </div>
 
           <div className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/10 bg-slate-900 p-6 hover-lift sm:p-7">
             <div className="grid gap-3 lg:grid-cols-3">
               {sentiments.map((sentiment) => (
-                <div
+                <Link
                   key={sentiment.key}
+                  href={sentimentExplainHref(sentiment.key)}
                   className="rounded-xl border border-white/10 bg-slate-800 p-3 hover-lift"
                 >
                   <p className="text-xs uppercase tracking-[0.12em] text-slate-400">
@@ -2727,7 +2761,7 @@ export default async function Home() {
                   <p className="mt-1 text-[11px] text-slate-400">
                     {sentiment.explanation}
                   </p>
-                </div>
+                </Link>
               ))}
             </div>
             <div className="mt-4 flex flex-1 flex-col rounded-2xl border border-white/10 bg-slate-800/70 p-3.5">
@@ -2740,8 +2774,9 @@ export default async function Home() {
               </p>
               <div className="mt-2 grid flex-1 auto-rows-fr gap-2 sm:grid-cols-2">
                 {platformGraph.map((platform, index) => (
-                  <article
+                  <Link
                     key={`compact-${platform.key}`}
+                    href={socialPlatformExplainHref(platform.key)}
                     className={`flex h-full flex-col justify-between rounded-xl border border-white/10 bg-slate-900 p-3 ${
                       platformGraph.length % 2 === 1 && index === platformGraph.length - 1
                         ? "sm:col-span-2"
@@ -2774,7 +2809,7 @@ export default async function Home() {
                     >
                       {platform.deltaPct >= 0 ? "▲" : "▼"} {Math.abs(platform.deltaPct).toFixed(0)}% vs day before
                     </p>
-                  </article>
+                  </Link>
                 ))}
               </div>
             </div>
@@ -2799,9 +2834,10 @@ export default async function Home() {
           </h3>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {indicators.map((indicator) => (
-              <article
+              <Link
                 key={indicator.id}
-                className="rounded-2xl border border-white/10 bg-slate-800 p-4 hover-lift"
+                href={componentExplainHref(indicator.id)}
+                className="rounded-2xl border border-white/10 bg-slate-800 p-4 hover-lift transition-colors hover:border-cyan-300/45"
               >
                 <p className="text-xs uppercase tracking-[0.14em] text-slate-400">
                   {indicator.label}
@@ -2823,7 +2859,7 @@ export default async function Home() {
                 <p className="mt-2 text-xs text-slate-400">
                   {indicator.description}
                 </p>
-              </article>
+              </Link>
             ))}
           </div>
         </section>
