@@ -2480,7 +2480,7 @@ export default async function Home() {
         </ScrollReveal>
 
         <ScrollReveal delayMs={60}>
-          <section className="grid min-w-0 items-stretch gap-6 lg:grid-cols-2">
+          <section className="grid min-w-0 items-stretch gap-6 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.24fr)_minmax(0,0.76fr)]">
           <div className="h-full rounded-3xl border border-white/10 bg-slate-900 p-6 hover-lift sm:p-7">
             {/* Score column + fixed-width semicircular gauge column (room for ticks + needle). */}
             <div className="grid grid-cols-1 items-start gap-5 min-[420px]:grid-cols-[minmax(0,1fr)_minmax(12.75rem,15.75rem)] min-[420px]:gap-x-6 min-[420px]:gap-y-3 lg:gap-x-10">
@@ -2509,7 +2509,7 @@ export default async function Home() {
                 style={{ width: `${score}%` }}
               />
             </div>
-            <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(15.5rem,0.72fr)] xl:items-stretch">
+            <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,2.15fr)_minmax(13.5rem,0.55fr)] xl:items-stretch">
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <div className="relative overflow-hidden rounded-lg border border-white/15 bg-slate-800/95 px-3 py-3 sm:min-h-[5.5rem]">
                   {(() => {
@@ -2521,7 +2521,10 @@ export default async function Home() {
                           style={{ height: `${fill}%` }}
                         />
                         <div className="pointer-events-none absolute inset-x-0" style={{ bottom: `calc(${fill}% - 0.6rem)` }}>
-                          <div className="narrative-liquid-wave h-4 w-[210%]" />
+                          <div className="narrative-liquid-wave h-4 w-[220%]">
+                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-a" />
+                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-b" />
+                          </div>
                         </div>
                       </>
                     );
@@ -2543,7 +2546,10 @@ export default async function Home() {
                           style={{ height: `${fill}%` }}
                         />
                         <div className="pointer-events-none absolute inset-x-0" style={{ bottom: `calc(${fill}% - 0.6rem)` }}>
-                          <div className="narrative-liquid-wave h-4 w-[210%]" />
+                          <div className="narrative-liquid-wave h-4 w-[220%]">
+                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-a" />
+                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-b" />
+                          </div>
                         </div>
                       </>
                     );
@@ -2565,7 +2571,10 @@ export default async function Home() {
                           style={{ height: `${fill}%` }}
                         />
                         <div className="pointer-events-none absolute inset-x-0" style={{ bottom: `calc(${fill}% - 0.6rem)` }}>
-                          <div className="narrative-liquid-wave h-4 w-[210%]" />
+                          <div className="narrative-liquid-wave h-4 w-[220%]">
+                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-a" />
+                            <div className="narrative-liquid-wave-layer narrative-liquid-wave-layer-b" />
+                          </div>
                         </div>
                       </>
                     );
@@ -2578,7 +2587,7 @@ export default async function Home() {
                   </div>
                 </div>
               </div>
-              <div className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/10 bg-slate-800/80 p-3 xl:h-full xl:max-w-[20rem] xl:justify-self-end">
+              <div className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/10 bg-slate-800/80 p-3 xl:h-full xl:max-w-[17rem] xl:justify-self-end">
                 <p className="shrink-0 text-[10px] uppercase tracking-[0.12em] text-slate-400">
                   Live Event Signals
                 </p>

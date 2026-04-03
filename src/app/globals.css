@@ -101,25 +101,65 @@ body {
 }
 
 .narrative-liquid-wave {
+  position: relative;
+  overflow: hidden;
   border-radius: 9999px;
-  background:
-    radial-gradient(28px 12px at 8% 65%, rgba(34, 211, 238, 0.65), rgba(34, 211, 238, 0) 72%),
-    radial-gradient(34px 14px at 24% 35%, rgba(168, 85, 247, 0.58), rgba(168, 85, 247, 0) 74%),
-    radial-gradient(30px 12px at 40% 68%, rgba(217, 70, 239, 0.58), rgba(217, 70, 239, 0) 72%),
-    radial-gradient(34px 14px at 58% 32%, rgba(34, 211, 238, 0.62), rgba(34, 211, 238, 0) 74%),
-    radial-gradient(28px 12px at 76% 66%, rgba(168, 85, 247, 0.56), rgba(168, 85, 247, 0) 72%),
-    radial-gradient(30px 12px at 92% 38%, rgba(34, 211, 238, 0.62), rgba(34, 211, 238, 0) 72%);
-  opacity: 0.88;
-  filter: blur(0.4px);
-  animation: liquid-wave-shift 5.5s linear infinite;
+  opacity: 0.94;
+  filter: blur(0.25px);
 }
 
-@keyframes liquid-wave-shift {
+.narrative-liquid-wave-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border-radius: 9999px;
+  background-repeat: repeat-x;
+}
+
+.narrative-liquid-wave-layer-a {
+  background-image:
+    radial-gradient(24px 11px at 28px 11px, rgba(125, 211, 252, 0.84) 0 56%, rgba(125, 211, 252, 0) 58%),
+    radial-gradient(30px 12px at 70px 6px, rgba(192, 132, 252, 0.72) 0 56%, rgba(192, 132, 252, 0) 58%);
+  background-size:
+    112px 100%,
+    168px 100%;
+  animation: liquid-wave-shift-a 4.8s linear infinite;
+}
+
+.narrative-liquid-wave-layer-b {
+  background-image:
+    radial-gradient(20px 9px at 24px 9px, rgba(34, 211, 238, 0.5) 0 55%, rgba(34, 211, 238, 0) 58%),
+    radial-gradient(26px 10px at 56px 12px, rgba(217, 70, 239, 0.42) 0 55%, rgba(217, 70, 239, 0) 58%);
+  background-size:
+    96px 100%,
+    144px 100%;
+  mix-blend-mode: screen;
+  animation: liquid-wave-shift-b 7.2s linear infinite reverse;
+}
+
+@keyframes liquid-wave-shift-a {
   0% {
-    transform: translateX(0);
+    background-position:
+      0 0,
+      0 0;
   }
   100% {
-    transform: translateX(-52%);
+    background-position:
+      -336px 0,
+      -504px 0;
+  }
+}
+
+@keyframes liquid-wave-shift-b {
+  0% {
+    background-position:
+      0 0,
+      0 0;
+  }
+  100% {
+    background-position:
+      -288px 0,
+      -432px 0;
   }
 }
 
@@ -128,7 +168,9 @@ body {
   .reveal-item.is-visible,
   .hover-lift,
   .ambient-orb,
-  .narrative-liquid-wave {
+  .narrative-liquid-wave,
+  .narrative-liquid-wave-layer-a,
+  .narrative-liquid-wave-layer-b {
     animation: none !important;
     transition: none !important;
     transform: none !important;
