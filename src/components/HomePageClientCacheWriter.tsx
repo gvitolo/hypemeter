@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { HOME_PAGE_DATA_CACHE_TTL_SEC } from "@/lib/homePageCacheConfig";
+import { homeRefreshPeriodEndMs } from "@/lib/homeRefreshPeriodAnchor";
 
 const STORAGE_KEY = "hypemeter-home-browser-buffer-v1";
 
@@ -28,8 +29,8 @@ export function HomePageClientCacheWriter({ payload }: { payload: HomeBrowserBuf
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(record));
 
-      // Cookie mirror for fast repeat-load hints in the browser.
-      const expires = new Date(payload.computedAt + HOME_PAGE_DATA_CACHE_TTL_SEC * 1000).toUTCString();
+      // Cookie mirror — align expiry to the same wall-clock period as the countdown.
+      const expires = new Date(homeRefreshPeriodEndMs(Date.now(), HOME_PAGE_DATA_CACHE_TTL_SEC)).toUTCString();
       document.cookie = `hypemeter_home_meta=${encodeURIComponent(
         JSON.stringify({ score: payload.score, updatedAt: payload.updatedAt, computedAt: payload.computedAt }),
       )}; path=/; expires=${expires}; SameSite=Lax`;

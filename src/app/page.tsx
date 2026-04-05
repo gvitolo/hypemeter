@@ -3097,10 +3097,7 @@ export default async function Home() {
                   </Link>
                 </div>
                 <div className="mt-1">
-                  <HomeNextUpdateCountdown
-                    computedAt={cacheMeta.computedAt}
-                    ttlSec={HOME_PAGE_DATA_CACHE_TTL_SEC}
-                  />
+                  <HomeNextUpdateCountdown ttlSec={HOME_PAGE_DATA_CACHE_TTL_SEC} />
                 </div>
               </div>
               <Suspense fallback={<HomeCardHighlightFallback />}>

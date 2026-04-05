@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { homeRefreshPeriodEndMs } from "@/lib/homeRefreshPeriodAnchor";
 
 function formatMmSs(msRemaining: number): string {
   const seconds = Math.max(0, Math.ceil(msRemaining / 1000));
@@ -9,22 +10,22 @@ function formatMmSs(msRemaining: number): string {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
-export function HomeNextUpdateCountdown({
-  computedAt,
-  ttlSec,
-}: {
-  computedAt: number;
-  ttlSec: number;
-}) {
-  const targetMs = useMemo(() => computedAt + ttlSec * 1000, [computedAt, ttlSec]);
-  const [remainingMs, setRemainingMs] = useState(() => Math.max(0, targetMs - Date.now()));
+/** Countdown to the next wall-clock-aligned refresh boundary (stable across page reloads). */
+export function HomeNextUpdateCountdown({ ttlSec }: { ttlSec: number }) {
+  const [remainingMs, setRemainingMs] = useState(() => {
+    const end = homeRefreshPeriodEndMs(Date.now(), ttlSec);
+    return Math.max(0, end - Date.now());
+  });
 
   useEffect(() => {
-    const tick = () => setRemainingMs(Math.max(0, targetMs - Date.now()));
+    const tick = () => {
+      const end = homeRefreshPeriodEndMs(Date.now(), ttlSec);
+      setRemainingMs(Math.max(0, end - Date.now()));
+    };
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
-  }, [targetMs]);
+  }, [ttlSec]);
 
   return (
     <p className="text-[11px] text-cyan-200/85 underline decoration-cyan-400/35 underline-offset-2">
