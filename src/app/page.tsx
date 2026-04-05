@@ -1,5 +1,4 @@
 import BacktrackMarketSection from "@/components/BacktrackMarketSection";
-import { CardHighlightPanel } from "@/components/CardHighlightPanel";
 import DayStatsCalendar from "@/components/DayStatsCalendar";
 import { HomePageClientCacheWriter } from "@/components/HomePageClientCacheWriter";
 import { HomeNextUpdateCountdown } from "@/components/HomeNextUpdateCountdown";
@@ -9,7 +8,6 @@ import ScrollReveal from "@/components/ScrollReveal";
 import { fetchMarketYearlyOverlay, type MarketYearlyOverlay } from "@/lib/marketBacktrack";
 import { fetchMarketSnapshot } from "@/lib/fetchMarketSnapshot";
 import type { MarketSnapshot } from "@/lib/marketSnapshot";
-import { fetchCardTraderPokemonBestSeller } from "@/lib/fetchCardTraderBestSeller";
 import { HOME_PAGE_DATA_CACHE_TTL_SEC, HYPEMETER_CACHE_TAG_HOME } from "@/lib/homePageCacheConfig";
 import {
   fetchPokemonByIdentifier,
@@ -171,6 +169,7 @@ const HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY = "home_news_items_last_good_v1";
 const HOME_NEWS_ITEMS_CACHE_KEY_V2 = "home_news_items_v2";
 const HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY_V2 = "home_news_items_last_good_v2";
 const HOME_LIVE_EVENT_SIGNALS_CACHE_KEY = "home_live_event_signals_v1";
+const HOME_PAGE_RUNTIME_SNAPSHOT_KEY = "home_page_payload_v1";
 const MARKET_SNAPSHOT_CACHE_KEY = "market_snapshot";
 const MARKET_SNAPSHOT_LAST_GOOD_CACHE_KEY = "market_snapshot_last_good_v1";
 const HOME_TIMEOUT_NEWS_MS = 800;
@@ -178,8 +177,9 @@ const HOME_TIMEOUT_MARKET_MS = 2400;
 const HOME_TIMEOUT_SIGNAL_MS = 900;
 const HOME_TIMEOUT_SOCIAL_MS = 1000;
 const HOME_TIMEOUT_OVERLAY_MS = 900;
-const HOME_TIMEOUT_CARD_MS = 800;
 const HOME_TIMEOUT_POKEMON_MS = 800;
+const HOME_PAGE_RUNTIME_STALE_MS = HOME_PAGE_DATA_CACHE_TTL_SEC * 1000;
+let homePageRefreshInFlight: Promise<void> | null = null;
 
 const blockedSourceHints = [
   "hotelier.com.py",
@@ -1835,6 +1835,17 @@ function componentExplainHref(id: string) {
   return map[id] ?? "/learn/model-weights";
 }
 
+function buildOverlayFallbackFromHistory(history: YearScore[]): MarketYearlyOverlay {
+  const base = history.map((row) => clampScore(row.score));
+  return {
+    sp500: [...base],
+    btc: [...base],
+    nintendo: [...base],
+    inflationYoY: history.map(() => 2.2),
+    inflation: history.map(() => 50),
+  };
+}
+
 // Build the displayed 2005->today timeline and blend latest point with live score.
 function buildBacktrackSeries(liveScore: number): YearScore[] {
   const currentYear = new Date().getFullYear();
@@ -2404,33 +2415,15 @@ async function loadHomePageDataUncached() {
   const history = buildBacktrackSeries(score);
   const overlayRuntimeKey = `overlay_years_${history.map((h) => h.year).join(",")}`;
   const cachedOverlay = readRuntimeSnapshotFromDb<MarketYearlyOverlay>(overlayRuntimeKey);
-  const overlayPromise = cachedOverlay
-    ? withSoftTimeout(
-        () =>
-          timedAsync("home:fetchMarketYearlyOverlay", () =>
-            fetchMarketYearlyOverlay(history.map((h) => h.year)),
-          ),
-        HOME_TIMEOUT_OVERLAY_MS,
-        () => cachedOverlay,
-      )
-    : timedAsync("home:fetchMarketYearlyOverlay", () => fetchMarketYearlyOverlay(history.map((h) => h.year)));
-  const [marketOverlay, cardTraderBestSellerLive] = await Promise.all([
-    overlayPromise,
-    withSoftTimeout(
-      () => timedAsync("home:fetchCardTraderPokemonBestSeller", () => fetchCardTraderPokemonBestSeller()),
-      HOME_TIMEOUT_CARD_MS,
-      () => null,
-    ),
-  ]);
-  const cardTraderBestSeller =
-    cardTraderBestSellerLive ??
-    readRuntimeSnapshotFromDb<{
-      name: string;
-      imageUrl: string;
-      cardUrl: string;
-      fromPrice: string;
-    }>("card_highlight_best_seller");
-  if (cardTraderBestSellerLive) upsertRuntimeSnapshotToDb("card_highlight_best_seller", cardTraderBestSellerLive);
+  const fallbackOverlay = cachedOverlay ?? buildOverlayFallbackFromHistory(history);
+  const marketOverlay = await withSoftTimeout(
+    () =>
+      timedAsync("home:fetchMarketYearlyOverlay", () =>
+        fetchMarketYearlyOverlay(history.map((h) => h.year)),
+      ),
+    cachedOverlay ? 120 : HOME_TIMEOUT_OVERLAY_MS,
+    () => fallbackOverlay,
+  );
   const todayCalendarStats = buildTodayCalendarStats(
     items.slice(0, 20),
     score,
@@ -2578,7 +2571,6 @@ async function loadHomePageDataUncached() {
     cycle30,
     history,
     marketOverlay,
-    cardTraderBestSeller,
     todayCalendarStats,
     liveEventSignals,
     liveSignalQuality,
@@ -2593,10 +2585,60 @@ async function loadHomePageDataUncached() {
   };
 }
 
-export const loadHomePageData = unstable_cache(loadHomePageDataUncached, ["hypemeter-home-v1"], {
+const loadHomePageDataCached = unstable_cache(loadHomePageDataUncached, ["hypemeter-home-v1"], {
   revalidate: HOME_PAGE_DATA_CACHE_TTL_SEC,
   tags: [HYPEMETER_CACHE_TAG_HOME],
 });
+
+type HomePagePayload = Awaited<ReturnType<typeof loadHomePageDataUncached>>;
+
+type HomePageRuntimeSnapshot = {
+  payload: HomePagePayload;
+  updatedAtMs: number;
+};
+
+function readHomePageRuntimeSnapshot(): HomePageRuntimeSnapshot | null {
+  const raw = readRuntimeSnapshotFromDb<HomePageRuntimeSnapshot>(HOME_PAGE_RUNTIME_SNAPSHOT_KEY);
+  if (!raw || typeof raw !== "object") return null;
+  if (!raw.payload || typeof raw.updatedAtMs !== "number") return null;
+  if (typeof raw.payload.score !== "number") return null;
+  if (!Array.isArray(raw.payload.topArticles)) return null;
+  return raw;
+}
+
+function scheduleHomePageRefresh() {
+  if (homePageRefreshInFlight) return;
+  homePageRefreshInFlight = (async () => {
+    try {
+      const fresh = await loadHomePageDataUncached();
+      upsertRuntimeSnapshotToDb(HOME_PAGE_RUNTIME_SNAPSHOT_KEY, {
+        payload: fresh,
+        updatedAtMs: Date.now(),
+      } as HomePageRuntimeSnapshot);
+    } catch {
+      /* keep previous snapshot */
+    } finally {
+      homePageRefreshInFlight = null;
+    }
+  })();
+}
+
+async function loadHomePageData() {
+  const snapshot = readHomePageRuntimeSnapshot();
+  if (snapshot) {
+    if (Date.now() - snapshot.updatedAtMs >= HOME_PAGE_RUNTIME_STALE_MS) {
+      scheduleHomePageRefresh();
+    }
+    return snapshot.payload;
+  }
+
+  const seeded = await loadHomePageDataCached();
+  upsertRuntimeSnapshotToDb(HOME_PAGE_RUNTIME_SNAPSHOT_KEY, {
+    payload: seeded,
+    updatedAtMs: Date.now(),
+  } as HomePageRuntimeSnapshot);
+  return seeded;
+}
 
 /** Uncached pipeline — use from `/debug` timing or when bypassing Data Cache. */
 export { loadHomePageDataUncached };
@@ -2613,7 +2655,6 @@ export default async function Home() {
     sentiments,
     history,
     marketOverlay,
-    cardTraderBestSeller,
     todayCalendarStats,
     liveEventSignals,
     liveSignalQuality,
@@ -2652,7 +2693,7 @@ export default async function Home() {
       <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-6 xl:max-w-7xl 2xl:max-w-[min(92rem,100%)]">
         <ScrollReveal>
           <header className="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-2xl shadow-cyan-950/30 backdrop-blur hover-lift">
-            <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
+            <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
               <div className="min-w-0">
                 <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">
                   Pokemon Fear & Greed Remix
@@ -2680,7 +2721,6 @@ export default async function Home() {
                   />
                 </div>
               </div>
-              <CardHighlightPanel cardTraderBestSeller={cardTraderBestSeller} />
               {pokemonOfDay ? (
                 <a
                   href={pokemonHighlightHref}
