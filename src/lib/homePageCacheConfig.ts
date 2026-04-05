@@ -1,8 +1,8 @@
 /**
  * Single TTL for home page + Card Highlight (best seller + image bytes) so data stays in sync.
- * Cron `/api/cron/revalidate-home` warms this every 15m so visitors usually hit a hot cache.
+ * Cron or external schedulers can call `/api/cron/revalidate-home` on this cadence to warm cache.
  */
-export const HYPEMETER_DATA_REVALIDATE_SEC = 15 * 60;
+export const HYPEMETER_DATA_REVALIDATE_SEC = 5 * 60 * 60;
 
 /** How long the home data pipeline can be served from Next.js Data Cache (seconds). */
 export const HOME_PAGE_DATA_CACHE_TTL_SEC = HYPEMETER_DATA_REVALIDATE_SEC;

@@ -18,7 +18,7 @@ function hourInRome(now: Date): number {
  * Warms Next.js Data Cache for the home pipeline (news, Card Highlight, etc.).
  * Call with Authorization: Bearer CRON_SECRET (set in Vercel env).
  * Vercel Hobby cannot schedule frequent crons — use external cron or GitHub Actions, or
- * rely on ISR (15 minute revalidate on home); Pro can add crons in vercel.json.
+ * rely on ISR (5 hour revalidate on home); Pro can add crons in vercel.json.
  * Quiet window: skip manual revalidation from 23:00 to 09:00 Europe/Rome.
  */
 export async function GET(request: Request) {

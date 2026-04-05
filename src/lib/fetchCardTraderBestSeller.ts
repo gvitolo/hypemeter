@@ -370,7 +370,7 @@ const fetchCardTraderPokemonBestSellerCached = unstable_cache(
   { revalidate: CARD_TRADER_HIGHLIGHT_CACHE_SEC, tags: [HYPEMETER_CACHE_TAG_HOME] },
 );
 
-/** Parsed best-seller row; cached with home TTL (15m) + `revalidateTag` from cron. */
+/** Parsed best-seller row; cached with home TTL + `revalidateTag` from cron/reload. */
 export async function fetchCardTraderPokemonBestSeller(): Promise<CardTraderBestSeller | null> {
   return fetchCardTraderPokemonBestSellerCached(cardHighlightCalendarDayKey());
 }

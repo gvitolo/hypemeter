@@ -94,7 +94,7 @@ export async function fetchCardTraderImageBytesUncached(imageUrl: string): Promi
 }
 
 /**
- * Cached bytes per **dayKey** + URL (Europe/Rome date in the key) with 15m `revalidate`.
+ * Cached bytes per **dayKey** + URL (Europe/Rome date in the key); `revalidate` matches home TTL.
  * `unstable_cache` must receive a **structured-clone-serializable** payload; raw `Buffer`
  * can round-trip as empty — store base64 and decode in the public helper.
  */

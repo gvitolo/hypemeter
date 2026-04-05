@@ -67,7 +67,7 @@ export async function getCardHighlightImageDebugPayload() {
       bytesLookLikeImage: upstream.ok ? upstream.rasterMagicOk : false,
     },
     hints: [
-      "Image proxy cache: day key (Europe/Rome) + URL; TTL 15m + cron revalidation.",
+      "Image proxy cache: day key (Europe/Rome) + URL; same TTL as home + cron revalidation.",
       "GET /api/card-highlight-image?url=… must use the same imageUrl as the page (avoids desync with seller re-fetch).",
       "If upstream fails with HTTP 403, CardTrader may block datacenter IPs.",
     ],

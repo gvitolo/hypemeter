@@ -145,7 +145,7 @@ export default function AboutPage() {
           />
           <SectionList title="Community Layer" items={["Community Sentiment", "Product Stress / Queue", "Signal Quality"]} />
           <SectionList title="Market Data" items={["S&P 500", "Bitcoin", "Nintendo", "Inflation (CPI YoY)"]} />
-          <SectionList title="Platform" items={["15-minute server cache", "Manual reload", "UTC timestamps", "Daily Pokemon highlight"]} />
+          <SectionList title="Platform" items={["5-hour server cache", "Manual reload", "UTC timestamps", "Daily Pokemon highlight"]} />
         </div>
 
         <section className="mt-6 rounded-3xl border border-white/10 bg-slate-900/70 p-6">
