@@ -1,4 +1,5 @@
 import { HYPEMETER_CACHE_TAG_HOME } from "@/lib/homePageCacheConfig";
+import { refreshHomePageRuntimeSnapshot } from "@/app/page";
 import { revalidatePath, revalidateTag } from "next/cache";
 
 export const runtime = "nodejs";
@@ -11,5 +12,10 @@ export async function POST() {
   // Ensure both data-tag cache and the homepage route cache are invalidated.
   revalidateTag(HYPEMETER_CACHE_TAG_HOME, "default");
   revalidatePath("/");
+  try {
+    await refreshHomePageRuntimeSnapshot();
+  } catch {
+    /* keep old snapshot; client still receives existing cached payload */
+  }
   return Response.json({ ok: true, revalidated: HYPEMETER_CACHE_TAG_HOME, at: new Date().toISOString() });
 }

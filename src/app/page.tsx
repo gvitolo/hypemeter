@@ -182,8 +182,8 @@ const HOME_CARD_HIGHLIGHT_CACHE_KEY = "home_card_highlight_v1";
 const HOME_CARD_HIGHLIGHT_LAST_GOOD_CACHE_KEY = "home_card_highlight_last_good_v1";
 const MARKET_SNAPSHOT_CACHE_KEY = "market_snapshot";
 const MARKET_SNAPSHOT_LAST_GOOD_CACHE_KEY = "market_snapshot_last_good_v1";
-const HOME_TIMEOUT_NEWS_MS = 800;
-const HOME_TIMEOUT_MARKET_MS = 2400;
+const HOME_TIMEOUT_NEWS_MS = 2800;
+const HOME_TIMEOUT_MARKET_MS = 3200;
 const HOME_TIMEOUT_SIGNAL_MS = 900;
 const HOME_TIMEOUT_SOCIAL_MS = 1000;
 const HOME_TIMEOUT_OVERLAY_MS = 900;
@@ -2699,17 +2699,22 @@ function scheduleHomePageRefresh() {
   if (homePageRefreshInFlight) return;
   homePageRefreshInFlight = (async () => {
     try {
-      const fresh = await loadHomePageDataUncached();
-      upsertRuntimeSnapshotToDb(HOME_PAGE_RUNTIME_SNAPSHOT_KEY, {
-        payload: fresh,
-        updatedAtMs: Date.now(),
-      } as HomePageRuntimeSnapshot);
+      await refreshHomePageRuntimeSnapshot();
     } catch {
       /* keep previous snapshot */
     } finally {
       homePageRefreshInFlight = null;
     }
   })();
+}
+
+async function refreshHomePageRuntimeSnapshot() {
+  const fresh = await loadHomePageDataUncached();
+  upsertRuntimeSnapshotToDb(HOME_PAGE_RUNTIME_SNAPSHOT_KEY, {
+    payload: fresh,
+    updatedAtMs: Date.now(),
+  } as HomePageRuntimeSnapshot);
+  return fresh;
 }
 
 function buildInstantHomePagePayload(): HomePagePayload {
@@ -2724,14 +2729,17 @@ function buildInstantHomePagePayload(): HomePagePayload {
     HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY,
   );
   const hardFallbackItems = sanitizeNewsItems(NEWS_ITEMS_HARD_FALLBACK, 28);
-  const items = sanitizeNewsItems(
-    cachedNewsV2?.items ??
-      cachedNewsLegacyRaw ??
-      lastGoodNewsV2?.items ??
-      lastGoodNewsLegacyRaw ??
-      hardFallbackItems,
-    28,
-  );
+  const cachedNewsItems = sanitizeNewsItems(cachedNewsV2?.items ?? cachedNewsLegacyRaw ?? [], 28);
+  const lastGoodNewsItems = sanitizeNewsItems(lastGoodNewsV2?.items ?? lastGoodNewsLegacyRaw ?? [], 28);
+  const items = isMeaningfulNewsItems(cachedNewsItems)
+    ? cachedNewsItems
+    : isMeaningfulNewsItems(lastGoodNewsItems)
+      ? lastGoodNewsItems
+      : cachedNewsItems.length > 0
+        ? cachedNewsItems
+        : lastGoodNewsItems.length > 0
+          ? lastGoodNewsItems
+          : hardFallbackItems;
 
   const cachedSearchStats = readRuntimeSnapshotFromDb<SearchInterestStats>(HOME_SEARCH_STATS_CACHE_KEY);
   const searchStats = cachedSearchStats ?? { score: 35, todayTraffic: 0, yesterdayTraffic: 0 };
@@ -2748,7 +2756,13 @@ function buildInstantHomePagePayload(): HomePagePayload {
   const cachedMarket = cachedMarketRaw ? normalizeMarketSnapshot(cachedMarketRaw) : null;
   const lastGoodMarketRaw = readRuntimeSnapshotFromDb<MarketSnapshot>(MARKET_SNAPSHOT_LAST_GOOD_CACHE_KEY);
   const lastGoodMarket = lastGoodMarketRaw ? normalizeMarketSnapshot(lastGoodMarketRaw) : null;
-  const market = cachedMarket ?? lastGoodMarket ?? MARKET_SNAPSHOT_HARD_FALLBACK;
+  let market = cachedMarket ?? lastGoodMarket ?? MARKET_SNAPSHOT_HARD_FALLBACK;
+  if (cachedMarket && lastGoodMarket) {
+    market = mergeMarketSnapshotFallback(cachedMarket, lastGoodMarket);
+  }
+  if (!hasMeaningfulMarketSnapshot(market)) {
+    market = lastGoodMarket ?? cachedMarket ?? MARKET_SNAPSHOT_HARD_FALLBACK;
+  }
 
   const marketMomentumCached = readCachedMarketMomentumScore()?.score;
   const marketMomentum = marketMomentumCached ?? scoreMarketMomentumFromMacroFallback(market);
@@ -2793,9 +2807,14 @@ function buildInstantHomePagePayload(): HomePagePayload {
   });
   const todayCalendarStats = buildTodayCalendarStats(items.slice(0, 20), score, searchInterest, socialTraffic);
 
-  const topArticles = [...items]
+  let topArticles = [...items]
     .sort((a, b) => scoreArticleRelevance(b) - scoreArticleRelevance(a))
     .slice(0, 10);
+  if (topArticles.length === 0) {
+    topArticles = [...hardFallbackItems]
+      .sort((a, b) => scoreArticleRelevance(b) - scoreArticleRelevance(a))
+      .slice(0, 10);
+  }
 
   const socialMomentumBarPct = (deltaPct: number) => {
     const x = Math.max(-95, Math.min(95, deltaPct));
@@ -2956,6 +2975,8 @@ async function loadHomePageData() {
 
 /** Uncached pipeline — use from `/debug` timing or when bypassing Data Cache. */
 export { loadHomePageDataUncached };
+/** Shared runtime snapshot warmer used by cron/manual refresh endpoints. */
+export { refreshHomePageRuntimeSnapshot };
 
 export default async function Home() {
   const {
