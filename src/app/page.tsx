@@ -1,4 +1,5 @@
 import BacktrackMarketSection from "@/components/BacktrackMarketSection";
+import { CardHighlightPanel } from "@/components/CardHighlightPanel";
 import DayStatsCalendar from "@/components/DayStatsCalendar";
 import { HomePageClientCacheWriter } from "@/components/HomePageClientCacheWriter";
 import { HomeNextUpdateCountdown } from "@/components/HomeNextUpdateCountdown";
@@ -8,6 +9,7 @@ import ScrollReveal from "@/components/ScrollReveal";
 import { fetchMarketYearlyOverlay, type MarketYearlyOverlay } from "@/lib/marketBacktrack";
 import { fetchMarketSnapshot } from "@/lib/fetchMarketSnapshot";
 import type { MarketSnapshot } from "@/lib/marketSnapshot";
+import { fetchCardTraderPokemonBestSeller } from "@/lib/fetchCardTraderBestSeller";
 import { HOME_PAGE_DATA_CACHE_TTL_SEC, HYPEMETER_CACHE_TAG_HOME } from "@/lib/homePageCacheConfig";
 import {
   fetchPokemonByIdentifier,
@@ -170,6 +172,8 @@ const HOME_NEWS_ITEMS_CACHE_KEY_V2 = "home_news_items_v2";
 const HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY_V2 = "home_news_items_last_good_v2";
 const HOME_LIVE_EVENT_SIGNALS_CACHE_KEY = "home_live_event_signals_v1";
 const HOME_PAGE_RUNTIME_SNAPSHOT_KEY = "home_page_payload_v1";
+const HOME_CARD_HIGHLIGHT_CACHE_KEY = "home_card_highlight_v1";
+const HOME_CARD_HIGHLIGHT_LAST_GOOD_CACHE_KEY = "home_card_highlight_last_good_v1";
 const MARKET_SNAPSHOT_CACHE_KEY = "market_snapshot";
 const MARKET_SNAPSHOT_LAST_GOOD_CACHE_KEY = "market_snapshot_last_good_v1";
 const HOME_TIMEOUT_NEWS_MS = 800;
@@ -177,6 +181,7 @@ const HOME_TIMEOUT_MARKET_MS = 2400;
 const HOME_TIMEOUT_SIGNAL_MS = 900;
 const HOME_TIMEOUT_SOCIAL_MS = 1000;
 const HOME_TIMEOUT_OVERLAY_MS = 900;
+const HOME_TIMEOUT_CARD_MS = 700;
 const HOME_TIMEOUT_POKEMON_MS = 800;
 const HOME_PAGE_RUNTIME_STALE_MS = HOME_PAGE_DATA_CACHE_TTL_SEC * 1000;
 let homePageRefreshInFlight: Promise<void> | null = null;
@@ -297,6 +302,27 @@ function asNewsCachePayload(value: unknown): NewsCachePayload | null {
     return null;
   }
   return { items, fetchedAtMs, source };
+}
+
+type CardHighlightData = {
+  name: string;
+  imageUrl: string;
+  cardUrl: string;
+  fromPrice: string;
+};
+
+function isCardHighlightData(value: unknown): value is CardHighlightData {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<CardHighlightData>;
+  return (
+    typeof row.name === "string" &&
+    row.name.trim().length > 0 &&
+    typeof row.imageUrl === "string" &&
+    row.imageUrl.trim().length > 0 &&
+    typeof row.cardUrl === "string" &&
+    row.cardUrl.trim().length > 0 &&
+    typeof row.fromPrice === "string"
+  );
 }
 
 const HARD_FALLBACK_EVENT_SIGNALS: LiveEventSignal[] = [
@@ -2250,6 +2276,14 @@ async function loadHomePageDataUncached() {
   const cachedEventCatalyst = readRuntimeSnapshotFromDb<number>(HOME_EVENT_CATALYST_CACHE_KEY);
   const cachedCommunitySentiment = readRuntimeSnapshotFromDb<number>(HOME_COMMUNITY_SENTIMENT_CACHE_KEY);
   const cachedSocialTraffic = readRuntimeSnapshotFromDb<SocialTrafficSnapshot>(HOME_SOCIAL_TRAFFIC_CACHE_KEY);
+  const cachedCardHighlightRaw = readRuntimeSnapshotFromDb<CardHighlightData>(HOME_CARD_HIGHLIGHT_CACHE_KEY);
+  const cachedCardHighlight = isCardHighlightData(cachedCardHighlightRaw) ? cachedCardHighlightRaw : null;
+  const lastGoodCardHighlightRaw = readRuntimeSnapshotFromDb<CardHighlightData>(
+    HOME_CARD_HIGHLIGHT_LAST_GOOD_CACHE_KEY,
+  );
+  const lastGoodCardHighlight = isCardHighlightData(lastGoodCardHighlightRaw)
+    ? lastGoodCardHighlightRaw
+    : null;
   items = await withSoftTimeout(
     () =>
       timedAsync("home:googleNewsRss", async () => {
@@ -2441,6 +2475,19 @@ async function loadHomePageDataUncached() {
     components: indicators,
     socialTraffic,
   });
+  const cardTraderBestSeller = await withSoftTimeout(
+    () => timedAsync("home:fetchCardTraderPokemonBestSeller", () => fetchCardTraderPokemonBestSeller()),
+    HOME_TIMEOUT_CARD_MS,
+    () => cachedCardHighlight ?? lastGoodCardHighlight ?? null,
+  );
+  if (isCardHighlightData(cardTraderBestSeller)) {
+    upsertRuntimeSnapshotToDb(HOME_CARD_HIGHLIGHT_CACHE_KEY, cardTraderBestSeller);
+    upsertRuntimeSnapshotToDb(HOME_CARD_HIGHLIGHT_LAST_GOOD_CACHE_KEY, cardTraderBestSeller);
+  } else if (cachedCardHighlight) {
+    upsertRuntimeSnapshotToDb(HOME_CARD_HIGHLIGHT_CACHE_KEY, cachedCardHighlight);
+  } else if (lastGoodCardHighlight) {
+    upsertRuntimeSnapshotToDb(HOME_CARD_HIGHLIGHT_CACHE_KEY, lastGoodCardHighlight);
+  }
   const topArticles = [...items]
     .sort((a, b) => scoreArticleRelevance(b) - scoreArticleRelevance(a))
     .slice(0, 10);
@@ -2571,6 +2618,7 @@ async function loadHomePageDataUncached() {
     cycle30,
     history,
     marketOverlay,
+    cardTraderBestSeller,
     todayCalendarStats,
     liveEventSignals,
     liveSignalQuality,
@@ -2655,6 +2703,7 @@ export default async function Home() {
     sentiments,
     history,
     marketOverlay,
+    cardTraderBestSeller,
     todayCalendarStats,
     liveEventSignals,
     liveSignalQuality,
@@ -2693,7 +2742,7 @@ export default async function Home() {
       <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-6 xl:max-w-7xl 2xl:max-w-[min(92rem,100%)]">
         <ScrollReveal>
           <header className="relative overflow-hidden rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-2xl shadow-cyan-950/30 backdrop-blur hover-lift">
-            <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-[minmax(0,1fr)_auto_auto]">
               <div className="min-w-0">
                 <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">
                   Pokemon Fear & Greed Remix
@@ -2721,6 +2770,7 @@ export default async function Home() {
                   />
                 </div>
               </div>
+              <CardHighlightPanel cardTraderBestSeller={cardTraderBestSeller} />
               {pokemonOfDay ? (
                 <a
                   href={pokemonHighlightHref}
