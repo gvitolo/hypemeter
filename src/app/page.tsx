@@ -597,42 +597,24 @@ function parseNews(xml: string): NewsItem[] {
   );
 }
 
-function siteBaseUrl() {
-  const configured = process.env.SITE_URL?.trim();
-  if (configured) return configured.replace(/\/$/, "");
-  // Production alias is always public; deployment URLs can be auth-protected.
-  if (process.env.VERCEL === "1") return "https://monmeter.vercel.app";
-  const vercel = process.env.VERCEL_URL?.trim();
-  if (vercel) return `https://${vercel.replace(/\/$/, "")}`;
-  return "http://localhost:3000";
-}
-
 async function fetchDayStatsHeadlinesFallback(): Promise<NewsItem[] | null> {
-  const day = new Date().toISOString().slice(0, 10);
-  const url = `${siteBaseUrl()}/api/day-stats?date=${day}`;
+  const start = new Date();
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  const startIso = start.toISOString().slice(0, 10);
+  const endIso = end.toISOString().slice(0, 10);
+  const query = encodeURIComponent(
+    `("Pokemon" OR "Pokémon" OR "Pokemon TCG") after:${startIso} before:${endIso}`,
+  );
+  const url = `https://news.google.com/rss/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
   const response = await fetchWithTimeout(url, {
-    cache: "no-store",
+    next: { revalidate: 0 },
     headers: { "user-agent": "Mozilla/5.0 hypemeter-runtime" },
     timeoutMs: 12_000,
   });
   if (!response?.ok) return null;
-  const payload = (await response.json()) as { headlines?: Array<Partial<NewsItem>> };
-  if (!Array.isArray(payload.headlines)) return null;
-  const rows: NewsItem[] = payload.headlines
-    .filter(
-      (row): row is Required<Pick<NewsItem, "title" | "link" | "pubDate" | "source">> & Partial<NewsItem> =>
-        typeof row?.title === "string" &&
-        typeof row.link === "string" &&
-        typeof row.pubDate === "string" &&
-        typeof row.source === "string",
-    )
-    .map((row) => ({
-      title: row.title,
-      link: row.link,
-      pubDate: row.pubDate,
-      source: row.source,
-      summary: typeof row.summary === "string" ? row.summary : "",
-    }));
+  const xml = await response.text();
+  const rows = parseNews(xml).filter((item) => /(pokemon|pokémon)/i.test(item.title));
   const selected = sanitizeNewsItems(rows, 28);
   return selected.length > 0 ? selected : null;
 }
