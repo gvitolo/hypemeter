@@ -624,6 +624,18 @@ async function fetchDayStatsHeadlinesFallback(): Promise<NewsItem[] | null> {
   return selected.length > 0 ? selected : null;
 }
 
+function buildStableDailyNewsQueryUrl() {
+  const start = new Date();
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+  const startIso = start.toISOString().slice(0, 10);
+  const endIso = end.toISOString().slice(0, 10);
+  const query = encodeURIComponent(
+    `("Pokemon" OR "Pokémon" OR "Pokemon TCG") after:${startIso} before:${endIso}`,
+  );
+  return `https://news.google.com/rss/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
+}
+
 function normalize(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -2431,6 +2443,29 @@ async function loadHomePageDataUncached() {
   items = await withSoftTimeout(
     () =>
       timedAsync("home:googleNewsRss", async () => {
+      const stableDailyResponse = await fetchWithTimeout(buildStableDailyNewsQueryUrl(), {
+        next: { revalidate: 0 },
+        headers: { "user-agent": "Mozilla/5.0 hypemeter-runtime" },
+        timeoutMs: 12_000,
+      });
+      if (stableDailyResponse?.ok) {
+        const xml = await stableDailyResponse.text();
+        const parsed = parseNews(xml);
+        const selected = sanitizeNewsItems(parsed.filter((item) => /(pokemon|pokémon)/i.test(item.title)), 28);
+        if (isMeaningfulNewsItems(selected)) {
+          const payload: NewsCachePayload = {
+            items: selected,
+            fetchedAtMs: Date.now(),
+            source: "live",
+          };
+          upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_CACHE_KEY, selected);
+          upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_CACHE_KEY_V2, payload);
+          upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY, selected);
+          upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY_V2, payload);
+          return selected;
+        }
+      }
+
       const responses = await Promise.all(
         [NEWS_URL, NEWS_URL_BACKUP].map((url) =>
           fetchWithTimeout(url, {
