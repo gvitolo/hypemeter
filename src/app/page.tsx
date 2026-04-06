@@ -597,6 +597,44 @@ function parseNews(xml: string): NewsItem[] {
   );
 }
 
+function siteBaseUrl() {
+  const configured = process.env.SITE_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+  const vercel = process.env.VERCEL_URL?.trim();
+  if (vercel) return `https://${vercel.replace(/\/$/, "")}`;
+  return "http://localhost:3000";
+}
+
+async function fetchDayStatsHeadlinesFallback(): Promise<NewsItem[] | null> {
+  const day = new Date().toISOString().slice(0, 10);
+  const url = `${siteBaseUrl()}/api/day-stats?date=${day}`;
+  const response = await fetchWithTimeout(url, {
+    cache: "no-store",
+    headers: { "user-agent": "Mozilla/5.0 hypemeter-runtime" },
+    timeoutMs: 12_000,
+  });
+  if (!response?.ok) return null;
+  const payload = (await response.json()) as { headlines?: Array<Partial<NewsItem>> };
+  if (!Array.isArray(payload.headlines)) return null;
+  const rows: NewsItem[] = payload.headlines
+    .filter(
+      (row): row is Required<Pick<NewsItem, "title" | "link" | "pubDate" | "source">> & Partial<NewsItem> =>
+        typeof row?.title === "string" &&
+        typeof row.link === "string" &&
+        typeof row.pubDate === "string" &&
+        typeof row.source === "string",
+    )
+    .map((row) => ({
+      title: row.title,
+      link: row.link,
+      pubDate: row.pubDate,
+      source: row.source,
+      summary: typeof row.summary === "string" ? row.summary : "",
+    }));
+  const selected = sanitizeNewsItems(rows, 28);
+  return selected.length > 0 ? selected : null;
+}
+
 function normalize(value: string) {
   return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
@@ -2489,6 +2527,21 @@ async function loadHomePageDataUncached() {
           : hardFallbackItems,
   );
   items = sanitizeNewsItems(items, 28);
+  if (!isMeaningfulNewsItems(items)) {
+    const fromDayStats = await fetchDayStatsHeadlinesFallback();
+    if (fromDayStats && isMeaningfulNewsItems(fromDayStats)) {
+      items = fromDayStats;
+      const payload: NewsCachePayload = {
+        items,
+        fetchedAtMs: Date.now(),
+        source: "live",
+      };
+      upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_CACHE_KEY, items);
+      upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_CACHE_KEY_V2, payload);
+      upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY, items);
+      upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_LAST_GOOD_CACHE_KEY_V2, payload);
+    }
+  }
   if (items.length > 0) {
     upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_CACHE_KEY, items);
     upsertRuntimeSnapshotToDb(HOME_NEWS_ITEMS_CACHE_KEY_V2, {
