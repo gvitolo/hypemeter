@@ -1,8 +1,9 @@
 import { unstable_cache } from "next/cache";
 import { fetchMarketSnapshot } from "@/lib/fetchMarketSnapshot";
+import { HYPEMETER_DATA_REVALIDATE_SEC } from "@/lib/homePageCacheConfig";
 
-/** Sidecar + aligned home pipeline market row: refetch at most once per hour (Next Data Cache). */
-export const MARKET_SIDECAR_REVALIDATE_SEC = 60 * 60;
+/** Backend cadence aligns with home snapshot refresh (every 5 hours). */
+export const MARKET_SIDECAR_REVALIDATE_SEC = HYPEMETER_DATA_REVALIDATE_SEC;
 
 /** Invalidate with `revalidateTag` from Reload/cron to warm quotes without waiting for TTL. */
 export const HYPEMETER_CACHE_TAG_MARKET_SIDECAR = "hypemeter-market-sidecar";

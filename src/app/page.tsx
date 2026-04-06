@@ -16,7 +16,7 @@ import {
   fetchMarketYearlyOverlay,
   type MarketYearlyOverlay,
 } from "@/lib/marketBacktrack";
-import { fetchMarketSnapshotHourly } from "@/lib/marketSnapshotHourlyCache";
+import { fetchMarketSnapshot } from "@/lib/fetchMarketSnapshot";
 import type { MarketSnapshot } from "@/lib/marketSnapshot";
 import { fetchCardTraderPokemonBestSeller } from "@/lib/fetchCardTraderBestSeller";
 import {
@@ -25,7 +25,6 @@ import {
 } from "@/lib/homePageCacheConfig";
 import {
   HOME_PAGE_RUNTIME_SNAPSHOT_KEY,
-  refreshHomePageRuntimeSnapshot,
 } from "@/lib/homePageRuntimeSnapshot";
 import {
   fetchPokemonByIdentifier,
@@ -200,9 +199,6 @@ const HOME_TIMEOUT_SOCIAL_MS = 1000;
 const HOME_TIMEOUT_OVERLAY_MS = 900;
 const HOME_TIMEOUT_CARD_WARM_MS = 900;
 const HOME_TIMEOUT_CARD_COLD_MS = 9_000;
-const HOME_TIMEOUT_SNAPSHOT_RECOVERY_MS = 9_000;
-const HOME_PAGE_RUNTIME_STALE_MS = HOME_PAGE_DATA_CACHE_TTL_SEC * 1000;
-let homePageRefreshInFlight: Promise<void> | null = null;
 
 const blockedSourceHints = [
   "hotelier.com.py",
@@ -2488,7 +2484,7 @@ async function loadHomePageDataUncached() {
   const lastGoodMarket = lastGoodMarketRaw ? normalizeMarketSnapshot(lastGoodMarketRaw) : null;
   let market = normalizeMarketSnapshot(
     await withSoftTimeout(
-      () => timedAsync("home:fetchMarketSnapshot", () => fetchMarketSnapshotHourly()),
+      () => timedAsync("home:fetchMarketSnapshot", () => fetchMarketSnapshot()),
       HOME_TIMEOUT_MARKET_MS,
       () => cachedMarket ?? lastGoodMarket ?? emptyMarketSnapshot(),
     ),
@@ -2766,19 +2762,6 @@ function readHomePageRuntimeSnapshot(): HomePageRuntimeSnapshot | null {
   return raw;
 }
 
-function scheduleHomePageRefresh() {
-  if (homePageRefreshInFlight) return;
-  homePageRefreshInFlight = (async () => {
-    try {
-      await refreshHomePageRuntimeSnapshot();
-    } catch {
-      /* keep previous snapshot */
-    } finally {
-      homePageRefreshInFlight = null;
-    }
-  })();
-}
-
 function buildInstantHomePagePayload(): HomePagePayload {
   const cachedNewsV2 = asNewsCachePayload(
     readRuntimeSnapshotFromDb<NewsCachePayload>(HOME_NEWS_ITEMS_CACHE_KEY_V2),
@@ -3020,30 +3003,9 @@ function buildInstantHomePagePayload(): HomePagePayload {
 async function loadHomePageData() {
   const snapshot = readHomePageRuntimeSnapshot();
   if (snapshot) {
-    // On serverless, background-only refresh can be interrupted. If snapshot has only fallback
-    // headlines, await one bounded recovery attempt in-request before serving.
-    if (!isMeaningfulNewsItems(snapshot.payload.items)) {
-      return withSoftTimeout(
-        () => refreshHomePageRuntimeSnapshot(),
-        HOME_TIMEOUT_SNAPSHOT_RECOVERY_MS,
-        () => snapshot.payload,
-      );
-    }
-    if (Date.now() - snapshot.updatedAtMs >= HOME_PAGE_RUNTIME_STALE_MS) {
-      scheduleHomePageRefresh();
-    }
     return snapshot.payload;
   }
-
-  const instant = buildInstantHomePagePayload();
-  return withSoftTimeout(
-    () => refreshHomePageRuntimeSnapshot(),
-    HOME_TIMEOUT_SNAPSHOT_RECOVERY_MS,
-    () => {
-      scheduleHomePageRefresh();
-      return instant;
-    },
-  );
+  return buildInstantHomePagePayload();
 }
 
 /** Uncached pipeline — use from `/debug` timing or when bypassing Data Cache. */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import type { MarketHighlightKey, MarketYearlyOverlay } from "@/lib/marketBacktrack";
 import { formatGrowthPct, formatSignedChange, formatUsd, growthPctColorClass } from "@/lib/marketFormat";
 import {
@@ -43,73 +43,7 @@ const BTC_SOURCE_NOTE: Record<NonNullable<MarketSnap["bitcoinSource"]>, string> 
   binance: "Binance (1d)",
 };
 
-const SIDECAR_POLL_MS = 60 * 60 * 1000;
-const SIDECAR_FETCH_TIMEOUT_MS = 10_000;
-const SIDECAR_RETRY_ATTEMPTS = 3;
-const SIDECAR_STORAGE_KEY = "hypemeter_market_sidecar_last_good_v1";
-const SIDECAR_RETRY_BASE_MS = 15_000;
-const SIDECAR_RETRY_MAX_MS = 15 * 60 * 1000;
-
-function parseMarketSnapFromApi(raw: unknown): MarketSnap | null {
-  if (!raw || typeof raw !== "object") return null;
-  const o = raw as Record<string, unknown>;
-  const numOrNull = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
-  const strOrNull = (v: unknown) => (typeof v === "string" ? v : null);
-  return {
-    sp500: numOrNull(o.sp500),
-    bitcoin: numOrNull(o.bitcoin),
-    nintendo: numOrNull(o.nintendo),
-    nintendoPreviousClose: numOrNull(o.nintendoPreviousClose),
-    nintendoChangeAbs: numOrNull(o.nintendoChangeAbs),
-    nintendoChangeCurrency:
-      o.nintendoChangeCurrency === "JPY" || o.nintendoChangeCurrency === "USD"
-        ? o.nintendoChangeCurrency
-        : null,
-    sp500GrowthPct: numOrNull(o.sp500GrowthPct),
-    bitcoinGrowthPct: numOrNull(o.bitcoinGrowthPct),
-    nintendoGrowthPct: numOrNull(o.nintendoGrowthPct),
-    updatedAt: strOrNull(o.updatedAt),
-    nintendoSource: o.nintendoSource === "tokyo" || o.nintendoSource === "adr" ? o.nintendoSource : null,
-    sp500Source:
-      o.sp500Source === "stooq" ||
-      o.sp500Source === "stooq-daily" ||
-      o.sp500Source === "yahoo"
-        ? o.sp500Source
-        : null,
-    bitcoinSource:
-      o.bitcoinSource === "stooq" ||
-      o.bitcoinSource === "stooq-daily" ||
-      o.bitcoinSource === "coingecko" ||
-      o.bitcoinSource === "binance"
-        ? o.bitcoinSource
-        : null,
-  };
-}
-
-function hasAnyQuote(row: MarketSnap): boolean {
-  return row.sp500 !== null || row.bitcoin !== null || row.nintendo !== null;
-}
-
-function readStoredMarketSnap(): MarketSnap | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(SIDECAR_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = parseMarketSnapFromApi(JSON.parse(raw));
-    return parsed && hasAnyQuote(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredMarketSnap(row: MarketSnap) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(SIDECAR_STORAGE_KEY, JSON.stringify(row));
-  } catch {
-    /* ignore storage errors */
-  }
-}
+/** Backend snapshot powers this panel; frontend does not fetch live quotes directly. */
 
 type Props = {
   initialMarket: MarketSnap;
@@ -128,112 +62,7 @@ export function MarketSidecarAside({
   highlight,
   setHighlight,
 }: Props) {
-  const [market, setMarket] = useState<MarketSnap>(initialMarket);
-  const refreshInFlight = useRef<Promise<boolean> | null>(null);
-  const schedulerTimeoutIdRef = useRef<number | null>(null);
-  const failureStreakRef = useRef(0);
-
-  useEffect(() => {
-    setMarket(initialMarket);
-    if (hasAnyQuote(initialMarket)) writeStoredMarketSnap(initialMarket);
-  }, [initialMarket]);
-
-  const refreshFromApi = useCallback(async (): Promise<boolean> => {
-    if (refreshInFlight.current) return refreshInFlight.current;
-    refreshInFlight.current = (async () => {
-      for (let attempt = 0; attempt < SIDECAR_RETRY_ATTEMPTS; attempt += 1) {
-        let timeoutId: number | null = null;
-        try {
-          const controller = new AbortController();
-          timeoutId = window.setTimeout(() => controller.abort(), SIDECAR_FETCH_TIMEOUT_MS);
-          const cacheBust = `t=${Date.now()}`;
-          const res = await fetch(`/api/market-snapshot?${cacheBust}`, {
-            cache: "no-store",
-            signal: controller.signal,
-          });
-          if (!res.ok) throw new Error(`http_${res.status}`);
-          const parsed = parseMarketSnapFromApi(await res.json());
-          if (parsed && hasAnyQuote(parsed)) {
-            setMarket(parsed);
-            writeStoredMarketSnap(parsed);
-            return true;
-          }
-          throw new Error("invalid_payload");
-        } catch {
-          if (attempt === SIDECAR_RETRY_ATTEMPTS - 1) return false;
-          const backoffMs = 350 * 2 ** attempt + Math.floor(Math.random() * 140);
-          await new Promise((resolve) => window.setTimeout(resolve, backoffMs));
-        } finally {
-          if (timeoutId !== null) window.clearTimeout(timeoutId);
-        }
-      }
-      return false;
-    })().finally(() => {
-      refreshInFlight.current = null;
-    });
-    return refreshInFlight.current;
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    const stored = readStoredMarketSnap();
-    if (stored) setMarket((current) => (hasAnyQuote(current) ? current : stored));
-
-    const clearScheduled = () => {
-      if (schedulerTimeoutIdRef.current !== null) {
-        window.clearTimeout(schedulerTimeoutIdRef.current);
-        schedulerTimeoutIdRef.current = null;
-      }
-    };
-
-    const scheduleNext = (delayMs: number) => {
-      clearScheduled();
-      schedulerTimeoutIdRef.current = window.setTimeout(() => {
-        void runCycle();
-      }, delayMs);
-    };
-
-    const nextRetryDelayMs = () => {
-      const exp = SIDECAR_RETRY_BASE_MS * 2 ** Math.max(0, failureStreakRef.current - 1);
-      const capped = Math.min(exp, SIDECAR_RETRY_MAX_MS);
-      return capped + Math.floor(Math.random() * 750);
-    };
-
-    const runCycle = async () => {
-      if (!active) return;
-      const ok = await refreshFromApi();
-      if (!active) return;
-      if (ok) {
-        failureStreakRef.current = 0;
-        scheduleNext(SIDECAR_POLL_MS);
-      } else {
-        failureStreakRef.current += 1;
-        scheduleNext(nextRetryDelayMs());
-      }
-    };
-
-    void runCycle();
-
-    const onVisible = () => {
-      if (document.visibilityState === "visible") {
-        failureStreakRef.current = 0;
-        void runCycle();
-      }
-    };
-    const onOnline = () => {
-      failureStreakRef.current = 0;
-      void runCycle();
-    };
-
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("online", onOnline);
-    return () => {
-      active = false;
-      clearScheduled();
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("online", onOnline);
-    };
-  }, [refreshFromApi]);
+  const market = initialMarket;
 
   const sp500Href = STOOQ_QUOTE_SPX;
   const btcHref =

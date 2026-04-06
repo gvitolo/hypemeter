@@ -1,5 +1,4 @@
 import { HYPEMETER_CACHE_TAG_HOME } from "@/lib/homePageCacheConfig";
-import { HYPEMETER_CACHE_TAG_MARKET_SIDECAR } from "@/lib/marketSnapshotHourlyCache";
 import { refreshHomePageRuntimeSnapshot } from "@/lib/homePageRuntimeSnapshot";
 import { revalidatePath, revalidateTag } from "next/cache";
 
@@ -12,7 +11,6 @@ export const runtime = "nodejs";
 export async function POST() {
   // Ensure both data-tag cache and the homepage route cache are invalidated.
   revalidateTag(HYPEMETER_CACHE_TAG_HOME, "default");
-  revalidateTag(HYPEMETER_CACHE_TAG_MARKET_SIDECAR, "default");
   revalidatePath("/");
   try {
     await refreshHomePageRuntimeSnapshot();
