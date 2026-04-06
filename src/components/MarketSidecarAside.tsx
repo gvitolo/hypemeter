@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MarketHighlightKey, MarketYearlyOverlay } from "@/lib/marketBacktrack";
 import { formatGrowthPct, formatSignedChange, formatUsd, growthPctColorClass } from "@/lib/marketFormat";
 import {
@@ -44,6 +44,9 @@ const BTC_SOURCE_NOTE: Record<NonNullable<MarketSnap["bitcoinSource"]>, string> 
 };
 
 const SIDECAR_POLL_MS = 60 * 60 * 1000;
+const SIDECAR_FETCH_TIMEOUT_MS = 10_000;
+const SIDECAR_RETRY_ATTEMPTS = 3;
+const SIDECAR_STORAGE_KEY = "hypemeter_market_sidecar_last_good_v1";
 
 function parseMarketSnapFromApi(raw: unknown): MarketSnap | null {
   if (!raw || typeof raw !== "object") return null;
@@ -81,6 +84,31 @@ function parseMarketSnapFromApi(raw: unknown): MarketSnap | null {
   };
 }
 
+function hasAnyQuote(row: MarketSnap): boolean {
+  return row.sp500 !== null || row.bitcoin !== null || row.nintendo !== null;
+}
+
+function readStoredMarketSnap(): MarketSnap | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SIDECAR_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = parseMarketSnapFromApi(JSON.parse(raw));
+    return parsed && hasAnyQuote(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredMarketSnap(row: MarketSnap) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SIDECAR_STORAGE_KEY, JSON.stringify(row));
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
 type Props = {
   initialMarket: MarketSnap;
   marketOverlay: MarketYearlyOverlay;
@@ -99,28 +127,62 @@ export function MarketSidecarAside({
   setHighlight,
 }: Props) {
   const [market, setMarket] = useState<MarketSnap>(initialMarket);
+  const refreshInFlight = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     setMarket(initialMarket);
+    if (hasAnyQuote(initialMarket)) writeStoredMarketSnap(initialMarket);
   }, [initialMarket]);
 
   const refreshFromApi = useCallback(async () => {
-    try {
-      const res = await fetch("/api/market-snapshot", { cache: "no-store" });
-      if (!res.ok) return;
-      const parsed = parseMarketSnapFromApi(await res.json());
-      if (parsed && (parsed.sp500 !== null || parsed.bitcoin !== null || parsed.nintendo !== null)) {
-        setMarket(parsed);
+    if (refreshInFlight.current) return refreshInFlight.current;
+    refreshInFlight.current = (async () => {
+      for (let attempt = 0; attempt < SIDECAR_RETRY_ATTEMPTS; attempt += 1) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = window.setTimeout(() => controller.abort(), SIDECAR_FETCH_TIMEOUT_MS);
+          const cacheBust = `t=${Date.now()}`;
+          const res = await fetch(`/api/market-snapshot?${cacheBust}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          window.clearTimeout(timeoutId);
+          if (!res.ok) throw new Error(`http_${res.status}`);
+          const parsed = parseMarketSnapFromApi(await res.json());
+          if (parsed && hasAnyQuote(parsed)) {
+            setMarket(parsed);
+            writeStoredMarketSnap(parsed);
+            return;
+          }
+          throw new Error("invalid_payload");
+        } catch {
+          if (attempt === SIDECAR_RETRY_ATTEMPTS - 1) return;
+          const backoffMs = 350 * 2 ** attempt + Math.floor(Math.random() * 140);
+          await new Promise((resolve) => window.setTimeout(resolve, backoffMs));
+        }
       }
-    } catch {
-      /* keep previous */
-    }
+    })().finally(() => {
+      refreshInFlight.current = null;
+    });
+    return refreshInFlight.current;
   }, []);
 
   useEffect(() => {
+    const stored = readStoredMarketSnap();
+    if (stored) setMarket((current) => (hasAnyQuote(current) ? current : stored));
     void refreshFromApi();
-    const id = window.setInterval(() => void refreshFromApi(), SIDECAR_POLL_MS);
-    return () => window.clearInterval(id);
+    const intervalId = window.setInterval(() => void refreshFromApi(), SIDECAR_POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshFromApi();
+    };
+    const onOnline = () => void refreshFromApi();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+    };
   }, [refreshFromApi]);
 
   const sp500Href = STOOQ_QUOTE_SPX;
