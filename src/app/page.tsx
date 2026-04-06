@@ -193,7 +193,7 @@ const HOME_CARD_HIGHLIGHT_CACHE_KEY = "home_card_highlight_v1";
 const HOME_CARD_HIGHLIGHT_LAST_GOOD_CACHE_KEY = "home_card_highlight_last_good_v1";
 const MARKET_SNAPSHOT_CACHE_KEY = "market_snapshot";
 const MARKET_SNAPSHOT_LAST_GOOD_CACHE_KEY = "market_snapshot_last_good_v1";
-const HOME_TIMEOUT_NEWS_MS = 2800;
+const HOME_TIMEOUT_NEWS_MS = 8000;
 const HOME_TIMEOUT_MARKET_MS = 3200;
 const HOME_TIMEOUT_SIGNAL_MS = 900;
 const HOME_TIMEOUT_SOCIAL_MS = 1000;
@@ -2414,7 +2414,7 @@ async function loadHomePageDataUncached() {
             headers: {
               "user-agent": "Mozilla/5.0 hypemeter",
             },
-            timeoutMs: 2500,
+            timeoutMs: 7000,
           }),
         ),
       );
@@ -3019,6 +3019,10 @@ function buildInstantHomePagePayload(): HomePagePayload {
 async function loadHomePageData() {
   const snapshot = readHomePageRuntimeSnapshot();
   if (snapshot) {
+    // If snapshot only has hard fallback headlines, keep trying to refresh aggressively.
+    if (!isMeaningfulNewsItems(snapshot.payload.items)) {
+      scheduleHomePageRefresh();
+    }
     if (Date.now() - snapshot.updatedAtMs >= HOME_PAGE_RUNTIME_STALE_MS) {
       scheduleHomePageRefresh();
     }
