@@ -10,32 +10,19 @@ function freshDbDir() {
   return path.join(os.tmpdir(), `hypemeter-home-bootstrap-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 }
 
-function rssResponse() {
+function rssResponse(prefix: string, count: number) {
   const now = new Date().toUTCString();
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<rss><channel>
-  <item>
-    <title>Pokemon TCG Pocket announces new expansion</title>
-    <link>https://example.com/pokemon-tcg-pocket-expansion</link>
-    <pubDate>${now}</pubDate>
-    <source>Example Cards</source>
-    <description>New Pokemon card expansion details.</description>
-  </item>
-  <item>
-    <title>Pokemon Presents reveals game update</title>
-    <link>https://example.com/pokemon-presents-update</link>
-    <pubDate>${now}</pubDate>
-    <source>Example Games</source>
-    <description>Pokemon game update and event news.</description>
-  </item>
-  <item>
-    <title>Pokemon Center restock draws collector demand</title>
-    <link>https://example.com/pokemon-center-restock</link>
-    <pubDate>${now}</pubDate>
-    <source>Example Market</source>
-    <description>Collector demand rises after restock.</description>
-  </item>
-</channel></rss>`;
+  const items = Array.from({ length: count }, (_, idx) => {
+    const n = idx + 1;
+    return `<item>
+      <title>Pokemon ${prefix} headline ${n} announces TCG update</title>
+      <link>https://example.com/${prefix.toLowerCase()}-${n}</link>
+      <pubDate>${now}</pubDate>
+      <source>Example ${prefix}</source>
+      <description>Pokemon cards and games update ${n}.</description>
+    </item>`;
+  }).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?><rss><channel>${items}</channel></rss>`;
 }
 
 afterEach(() => {
@@ -55,17 +42,37 @@ describe("home page article bootstrap", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response(rssResponse(), { status: 200, headers: { "Content-Type": "application/rss+xml" } })),
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(rssResponse("Daily", 5), {
+            status: 200,
+            headers: { "Content-Type": "application/rss+xml" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(rssResponse("Backup", 6), {
+            status: 200,
+            headers: { "Content-Type": "application/rss+xml" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(rssResponse("Primary", 6), {
+            status: 200,
+            headers: { "Content-Type": "application/rss+xml" },
+          }),
+        ),
     );
 
     const { loadHomePageDataForTests } = await import("@/app/page");
     const payload = await loadHomePageDataForTests();
 
     expect(payload.topArticles.map((item) => item.title)).toContain(
-      "Pokemon TCG Pocket announces new expansion",
+      "Pokemon Daily headline 1 announces TCG update",
     );
     expect(payload.topArticles.map((item) => item.title)).not.toContain("Pokemon News Hub");
-    expect(payload.items.length).toBeGreaterThanOrEqual(3);
+    expect(payload.topArticles).toHaveLength(10);
+    expect(payload.items.length).toBeGreaterThanOrEqual(10);
     expect(payload.liveEventSignals.length).toBeGreaterThan(0);
   });
 });

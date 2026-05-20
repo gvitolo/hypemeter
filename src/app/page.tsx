@@ -203,6 +203,7 @@ const HOME_TIMEOUT_SOCIAL_MS = 1000;
 const HOME_TIMEOUT_CARD_WARM_MS = 900;
 const HOME_TIMEOUT_CARD_COLD_MS = 2_500;
 const HOME_BOOTSTRAP_NEWS_MS = 2_200;
+const HOME_TOP_ARTICLES_TARGET = 10;
 const MARKET_OVERLAY_REFRESH_MS = 90 * 60 * 1000;
 const marketOverlayRefreshInFlight = new Set<string>();
 
@@ -632,7 +633,7 @@ async function fetchDayStatsHeadlinesFallback(): Promise<NewsItem[] | null> {
 
 async function fetchBootstrapNewsItems(): Promise<NewsItem[] | null> {
   const responses = await Promise.all(
-    [buildStableDailyNewsQueryUrl(), NEWS_URL_BACKUP].map((url) =>
+    [buildStableDailyNewsQueryUrl(), NEWS_URL_BACKUP, NEWS_URL].map((url) =>
       fetchWithTimeout(url, {
         next: { revalidate: 0 },
         headers: { "user-agent": "Mozilla/5.0 hypemeter-bootstrap" },
@@ -641,16 +642,17 @@ async function fetchBootstrapNewsItems(): Promise<NewsItem[] | null> {
     ),
   );
 
+  const merged: NewsItem[] = [];
   for (const response of responses) {
     if (!response?.ok) continue;
     const parsed = parseNews(await response.text());
     const curated = curateNewsItems(parsed);
     const fallback = parsed.filter((item) => /(pokemon|pokémon)/i.test(item.title));
-    const selected = sanitizeNewsItems(curated.length > 0 ? curated : fallback, 28);
-    if (isMeaningfulNewsItems(selected)) return selected;
+    merged.push(...(curated.length > 0 ? curated : fallback));
   }
 
-  return null;
+  const selected = sanitizeNewsItems(merged, 28);
+  return isMeaningfulNewsItems(selected) ? selected : null;
 }
 
 function buildStableDailyNewsQueryUrl() {
@@ -3019,11 +3021,11 @@ function buildInstantHomePagePayload(newsOverride?: NewsItem[]): HomePagePayload
 
   let topArticles = [...items]
     .sort((a, b) => scoreArticleRelevance(b) - scoreArticleRelevance(a))
-    .slice(0, 10);
+    .slice(0, HOME_TOP_ARTICLES_TARGET);
   if (topArticles.length === 0) {
     topArticles = [...hardFallbackItems]
       .sort((a, b) => scoreArticleRelevance(b) - scoreArticleRelevance(a))
-      .slice(0, 10);
+      .slice(0, HOME_TOP_ARTICLES_TARGET);
   }
 
   const socialMomentumBarPct = (deltaPct: number) => {
