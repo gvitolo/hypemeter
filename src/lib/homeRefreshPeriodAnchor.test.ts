@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { homeRefreshPeriodAnchorMs, homeRefreshPeriodEndMs } from "./homeRefreshPeriodAnchor";
 
 describe("homeRefreshPeriodAnchor", () => {
-  const periodSec = 5 * 60 * 60;
+  const periodSec = 90 * 60;
   const periodMs = periodSec * 1000;
 
   it("keeps anchor stable within a period", () => {

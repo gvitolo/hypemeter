@@ -23,7 +23,6 @@ import { fetchCardTraderPokemonBestSeller } from "@/lib/fetchCardTraderBestSelle
 import {
   HOME_PAGE_DATA_CACHE_TTL_SEC,
   HOME_POKEMON_RESOLVE_BUDGET_MS,
-  HYPEMETER_CACHE_TAG_HOME,
 } from "@/lib/homePageCacheConfig";
 import {
   HOME_PAGE_RUNTIME_SNAPSHOT_KEY,
@@ -136,8 +135,9 @@ type PokemonOfDayArticle = {
   pokemonMentions: string[];
 };
 
-// Let Next decide route caching strategy; freshness comes from `unstable_cache` + revalidation tags.
-export const dynamic = "auto";
+// Always render dynamically from the latest local runtime snapshot/fallback. External refresh work is scheduled
+// after the response so a bad upstream call cannot poison cached HTML for hours.
+export const dynamic = "force-dynamic";
 
 /**
  * Pro/Enterprise: up to 60s. **Vercel Hobby caps serverless at ~10s** — keep upstream work bounded
@@ -196,12 +196,12 @@ const HOME_CARD_HIGHLIGHT_CACHE_KEY = "home_card_highlight_v1";
 const HOME_CARD_HIGHLIGHT_LAST_GOOD_CACHE_KEY = "home_card_highlight_last_good_v1";
 const MARKET_SNAPSHOT_CACHE_KEY = "market_snapshot";
 const MARKET_SNAPSHOT_LAST_GOOD_CACHE_KEY = "market_snapshot_last_good_v1";
-const HOME_TIMEOUT_NEWS_MS = 26_000;
+const HOME_TIMEOUT_NEWS_MS = 8_000;
 const HOME_TIMEOUT_MARKET_MS = 3200;
 const HOME_TIMEOUT_SIGNAL_MS = 900;
 const HOME_TIMEOUT_SOCIAL_MS = 1000;
 const HOME_TIMEOUT_CARD_WARM_MS = 900;
-const HOME_TIMEOUT_CARD_COLD_MS = 9_000;
+const HOME_TIMEOUT_CARD_COLD_MS = 2_500;
 const MARKET_OVERLAY_REFRESH_MS = 90 * 60 * 1000;
 const marketOverlayRefreshInFlight = new Set<string>();
 
@@ -3140,20 +3140,12 @@ function buildInstantHomePagePayload(): HomePagePayload {
 }
 
 async function loadHomePageData() {
-  return loadHomePageDataCached();
+  const snapshot = readHomePageRuntimeSnapshot();
+  if (snapshot && isMeaningfulNewsItems(snapshot.payload.items)) {
+    return snapshot.payload;
+  }
+  return buildInstantHomePagePayload();
 }
-
-const loadHomePageDataCached = unstable_cache(
-  async (): Promise<HomePagePayload> => {
-    const snapshot = readHomePageRuntimeSnapshot();
-    if (snapshot && isMeaningfulNewsItems(snapshot.payload.items)) {
-      return snapshot.payload;
-    }
-    return loadHomePageDataUncached();
-  },
-  ["home-page-payload-shared-v1"],
-  { revalidate: HOME_PAGE_DATA_CACHE_TTL_SEC, tags: [HYPEMETER_CACHE_TAG_HOME] },
-);
 
 /** Uncached pipeline — use from `/debug` timing or when bypassing Data Cache. */
 export { loadHomePageDataUncached };

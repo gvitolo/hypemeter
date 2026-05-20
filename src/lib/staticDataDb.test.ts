@@ -7,6 +7,7 @@ import {
   readPokemonCatalogSnapshotFromDb,
   readPokemonDayBundleFromDb,
   readPokemonProfileFromDb,
+  readRuntimeSnapshotRecordFromDb,
   readRuntimeSnapshotFromDb,
   readStaticCpiYoYFromDb,
   readStooqMonthlyCloseFromDb,
@@ -118,6 +119,17 @@ describe("staticDataDb", () => {
     expect(snap?.sp500).toBe(5100.1);
     expect(snap?.bitcoin).toBe(70000.5);
     expect(fs.existsSync(path.join(dir, "hypemeter-runtime.db"))).toBe(true);
+  });
+
+  it("returns runtime snapshot age metadata for stale checks", () => {
+    withFreshDbDir();
+    upsertRuntimeSnapshotToDb("home_page_payload_v1", { score: 64 });
+
+    const record = readRuntimeSnapshotRecordFromDb<{ score: number }>("home_page_payload_v1");
+
+    expect(record?.payload.score).toBe(64);
+    expect(record?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(record?.updatedAtMs).toBeGreaterThan(0);
   });
 
   it("stores pokemon catalog and profiles in SQL tables", () => {
